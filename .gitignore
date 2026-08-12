@@ -17,3 +17,9 @@ build*/
 *.lib
 __pycache__/
 *.pyc
+
+# Voice/invariant pass working state. Created by tools/voice-invariant.py during a presentation
+# pass; the snapshots are baselines for that pass only and are meaningless once it lands. This
+# directory reached the public repo because it was created AFTER the measurement that chose what
+# to curate — the third instance of "a file created after a sweep is invisible to that sweep".
+.voice/
