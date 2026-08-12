@@ -1,7 +1,10 @@
 # rt1 — a one-shot clang-cl / lld overlay for ARM32 Windows (LLVM 18.1.8)
 
 rt1 is a small **binary overlay** onto the official LLVM 18.1.8 win64 package, for people compiling
-C and C++ for **ARM32 Windows** (`thumbv7`) with `clang-cl` and `lld-link`. IIt fixes four code-generation and linker defects that produce silently wrong ARM32 binaries, and four narrower ones — see the patch table **If you do not target ARM32 Windows, you do not need it.**
+C and C++ for **ARM32 Windows** (`thumbv7`) with `clang-cl` and `lld-link`. It fixes four
+code-generation and linker defects that produce silently wrong ARM32 binaries, and four narrower
+ones — see the patch table in `RELEASE-NOTES.md`. **If you do not target ARM32 Windows, you do not
+need it.**
 
 It is **not a maintained fork**: released once, no rebases, no version bumps, no updates planned.
 Base is `llvmorg-18.1.8` (`3b5b5c1ec4a3095ab096dd780e84d7ab81f3d7ff`).

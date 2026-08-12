@@ -3,8 +3,8 @@
 rt1 is a small **binary overlay** onto the official LLVM 18.1.8 win64 package, for people
 **compiling C and C++ for ARM32 Windows** (`thumbv7`) with `clang-cl` and
 `lld-link`. It fixes four code-generation and linker defects that produce silently wrong ARM32
-binaries, and one that aborts the compiler. If you do not target ARM32 Windows, you do not
-need it.
+binaries, and four narrower ones — see the patch table. If you do not target ARM32 Windows, you do
+not need it.
 
 **To install:** install the official LLVM 18.1.8 win64 package, then copy this package's
 `bin/` and `lib/clang/18/include/` over it. Nothing else in the installation is touched, and
