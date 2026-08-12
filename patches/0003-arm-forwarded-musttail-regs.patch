@@ -1,0 +1,239 @@
+rt1 patch 0003 --- [ARM] Model the forwarded argument registers of a musttail vararg forwarder
+                    (+ the two review fixes folded in)
+
+Upstream commits in the rt1 tree: a1f390894, 3afb49879.
+
+SCOPE --- read this before assuming "Windows ARM32" means "MSVC".
+
+  The affected path is selected by MCAsmInfo::usesWindowsCFI(), which is true for
+  BOTH ARM COFF asm infos:
+
+      ARMCOFFMCAsmInfoMicrosoft   ->  thumbv7-*-windows-msvc
+      ARMCOFFMCAsmInfoGNU         ->  thumbv7-*-windows-gnu      (MinGW ARM32)
+
+  ARMCOFFMCAsmInfoGNU sets ExceptionsType = WinEH, so a MinGW ARM32 target takes
+  the same WinEH path and is inside this patch's blast radius. Descriptions that
+  say only "Windows ARM32" are routinely read as "MSVC only"; that reading is
+  wrong for this patch, and equally wrong for patch 0001, whose trigger
+  (ARMSubtarget::splitFramePointerPush) is gated on the same usesWindowsCFI().
+
+  rt1 validates on the MSVC target only --- no MinGW ARM32 consumer exists here
+  to validate against. The MinGW target is stated as in-scope-by-construction,
+  NOT as tested.
+
+diff --git a/llvm/lib/Target/ARM/ARMISelLowering.cpp b/llvm/lib/Target/ARM/ARMISelLowering.cpp
+index 23852cf49..44dc06f59 100644
+--- a/llvm/lib/Target/ARM/ARMISelLowering.cpp
++++ b/llvm/lib/Target/ARM/ARMISelLowering.cpp
+@@ -2474,6 +2474,20 @@ ARMTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
+   RegsToPassVector RegsToPass;
+   SmallVector<SDValue, 8> MemOpChains;
+ 
++  // A musttail call in a variadic function has to receive the caller's unnamed
++  // register arguments unchanged, so pass on the registers that
++  // LowerFormalArguments recorded as forwarded.  They are disjoint from the
++  // named arguments handled below: musttail requires the callee's prototype to
++  // match the caller's, and the forwarded set was computed from the registers
++  // those named arguments had already consumed.
++  if (isVarArg && CLI.CB && CLI.CB->isMustTailCall()) {
++    const auto &Forwards = AFI->getForwardedMustTailRegParms();
++    for (const ForwardedRegister &F : Forwards) {
++      SDValue Val = DAG.getCopyFromReg(Chain, dl, F.VReg, F.VT);
++      RegsToPass.push_back(std::make_pair(F.PReg, Val));
++    }
++  }
++
+   // During a tail call, stores to the argument area must happen after all of
+   // the function's incoming arguments have been loaded because they may alias.
+   // This is done by folding in a TokenFactor from LowerFormalArguments, but
+@@ -4679,6 +4693,37 @@ SDValue ARMTargetLowering::LowerFormalArguments(
+     }
+   }
+ 
++  // If this variadic function forwards its arguments with a musttail call, the
++  // unnamed arguments that arrived in registers have to be modelled as live so
++  // that the register allocator does not use one of them as scratch and so that
++  // they are still intact at the tail call.  This must run after the va_list
++  // save area above, which consumes the same registers, but unlike that area it
++  // needs no stack object of its own -- so it is deliberately *not* predicated
++  // on hasVAStart(): a forwarding thunk never calls va_start.
++  if (isVarArg && MFI.hasMustTailInVarArgFunc()) {
++    // getRemainingRegParmsForType() walks the assign function until an argument
++    // lands in memory, so the convention must have a stack fallback.  GHC and
++    // the Windows CFGuard check stub assign to registers only and would run off
++    // the end of their tables; getEffectiveCallingConv() passes both through
++    // unchanged.  Neither supports variadic arguments, so there is nothing to
++    // forward for them, and skipping keeps a shape that compiles today from
++    // becoming a backend abort.
++    CallingConv::ID EffCC = getEffectiveCallingConv(CallConv, isVarArg);
++    if (EffCC != CallingConv::GHC && EffCC != CallingConv::CFGuard_Check) {
++      // For the conventions that remain, only the core registers can hold an
++      // unnamed argument: getEffectiveCallingConv() degrades every VFP
++      // convention to CallingConv::ARM_AAPCS when isVarArg is set, so no
++      // floating-point register is part of the variadic argument window.
++      SmallVector<MVT, 1> RegParmTypes;
++      RegParmTypes.push_back(MVT::i32);
++      // Compute the set of forwarded registers. The rest are scratch.
++      SmallVectorImpl<ForwardedRegister> &Forwards =
++          AFI->getForwardedMustTailRegParms();
++      CCInfo.analyzeMustTailForwardedRegisters(
++          Forwards, RegParmTypes, CCAssignFnForCall(CallConv, isVarArg));
++    }
++  }
++
+   unsigned StackArgSize = CCInfo.getStackSize();
+   bool TailCallOpt = MF.getTarget().Options.GuaranteedTailCallOpt;
+   if (canGuaranteeTCO(CallConv, TailCallOpt)) {
+diff --git a/llvm/lib/Target/ARM/ARMMachineFunctionInfo.h b/llvm/lib/Target/ARM/ARMMachineFunctionInfo.h
+index b9ff3a08f..fd1772a8b 100644
+--- a/llvm/lib/Target/ARM/ARMMachineFunctionInfo.h
++++ b/llvm/lib/Target/ARM/ARMMachineFunctionInfo.h
+@@ -15,6 +15,8 @@
+ 
+ #include "llvm/ADT/DenseMap.h"
+ #include "llvm/ADT/SmallPtrSet.h"
++#include "llvm/ADT/SmallVector.h"
++#include "llvm/CodeGen/CallingConvLower.h"
+ #include "llvm/CodeGen/MIRYamlMapping.h"
+ #include "llvm/CodeGen/MachineFunction.h"
+ #include "llvm/IR/GlobalVariable.h"
+@@ -106,6 +108,12 @@ class ARMFunctionInfo : public MachineFunctionInfo {
+   /// VarArgsFrameIndex - FrameIndex for start of varargs area.
+   int VarArgsFrameIndex = 0;
+ 
++  /// ForwardedMustTailRegParms - A list of virtual and physical registers that
++  /// must be forwarded to every musttail call.  On ARM the variadic argument
++  /// window is only ever the four core argument registers, so the inline
++  /// capacity is 4.
++  SmallVector<ForwardedRegister, 4> ForwardedMustTailRegParms;
++
+   /// HasITBlocks - True if IT blocks have been inserted.
+   bool HasITBlocks = false;
+ 
+@@ -235,6 +243,10 @@ public:
+   int getVarArgsFrameIndex() const { return VarArgsFrameIndex; }
+   void setVarArgsFrameIndex(int Index) { VarArgsFrameIndex = Index; }
+ 
++  SmallVectorImpl<ForwardedRegister> &getForwardedMustTailRegParms() {
++    return ForwardedMustTailRegParms;
++  }
++
+   bool hasITBlocks() const { return HasITBlocks; }
+   void setHasITBlocks(bool h) { HasITBlocks = h; }
+ 
+diff --git a/llvm/test/CodeGen/ARM/musttail-varargs-forward.ll b/llvm/test/CodeGen/ARM/musttail-varargs-forward.ll
+new file mode 100644
+index 000000000..6d8faa423
+--- /dev/null
++++ b/llvm/test/CodeGen/ARM/musttail-varargs-forward.ll
+@@ -0,0 +1,110 @@
++; RUN: llc -verify-machineinstrs -mtriple=thumbv7-unknown-windows-msvc %s -o - | FileCheck %s
++; RUN: llc -verify-machineinstrs -mtriple=armv7-unknown-linux-gnueabihf %s -o - | FileCheck %s
++; RUN: llc -verify-machineinstrs -mtriple=armv7-unknown-linux-gnueabi %s -o - | FileCheck %s
++
++; A variadic function that forwards its arguments with a musttail call must
++; treat the unnamed argument registers as live.  Forwarders of exactly this
++; shape are what the Microsoft C++ ABI emits for a virtual member pointer call
++; ("??_9<class>@@$B<slot>AA") and for a thunk to an unprototyped function, so
++; picking one of them as scratch silently destroys the caller's first argument.
++; When the target returns a struct that argument is the hidden return buffer
++; pointer, which turns the defect into a wild store.
++;
++; Before this was fixed the vtable load was allocated the first still-unused
++; argument register - r1 for @fwd_variadic, r2 for @fwd_variadic_named1 - even
++; though the whole point of the function is to hand those registers on
++; untouched.
++
++; The unnamed arguments occupy r1-r3, so the scratch has to come from outside the
++; argument window; r12 is what the allocator reaches for, matching the
++; non-variadic forwarder at the bottom of this file.
++define arm_aapcs_vfpcc void @fwd_variadic(ptr %this, ...) nounwind {
++; CHECK-LABEL: fwd_variadic:
++; CHECK: ldr{{(\.w)?}} r12, [r0]
++; CHECK: ldr{{(\.w)?}} r12, [r12, #4]
++; CHECK: bx r12
++  %vt = load ptr, ptr %this, align 4
++  %slot = getelementptr inbounds ptr, ptr %vt, i32 1
++  %fn = load ptr, ptr %slot, align 4
++  musttail call arm_aapcs_vfpcc void (ptr, ...) %fn(ptr %this, ...)
++  ret void
++}
++
++; One named prefix argument in r1 was already respected; the unnamed window is
++; r2-r3, so again nothing in r0-r3 is free.
++define arm_aapcs_vfpcc void @fwd_variadic_named1(ptr %this, i32 %n, ...) nounwind {
++; CHECK-LABEL: fwd_variadic_named1:
++; CHECK: ldr{{(\.w)?}} r12, [r0]
++; CHECK: ldr{{(\.w)?}} r12, [r12, #4]
++; CHECK: bx r12
++  %vt = load ptr, ptr %this, align 4
++  %slot = getelementptr inbounds ptr, ptr %vt, i32 1
++  %fn = load ptr, ptr %slot, align 4
++  musttail call arm_aapcs_vfpcc void (ptr, i32, ...) %fn(ptr %this, i32 %n, ...)
++  ret void
++}
++
++; Two values are live at once, which previously took r1 *and* r2.  This is the
++; shape that matters for a struct-returning callee: the hidden return buffer
++; pointer travels in the unnamed window, so a second scratch register taken from
++; it is a wild store rather than a wrong argument.  Which registers the
++; allocator picks instead is not fixed by the ABI, so only assert that no
++; argument register is written or branched to.
++define arm_aapcs_vfpcc void @fwd_variadic_two_scratch(ptr %this, ...) nounwind {
++; CHECK-LABEL: fwd_variadic_two_scratch:
++; CHECK-NOT: ldr r1,
++; CHECK-NOT: ldr r2,
++; CHECK-NOT: ldr r3,
++; The register number must be anchored to end-of-line: FileCheck patterns are
++; substring searches over whitespace-canonicalized input, so a bare "bx r1"
++; also matches the "bx r12" this patch is supposed to produce.
++; CHECK-NOT: bx r1{{$}}
++; CHECK-NOT: bx r2{{$}}
++; CHECK-NOT: bx r3{{$}}
++; A positive anchor as well, so a truncated or empty label block cannot satisfy
++; the CHECK-NOTs vacuously.  Which non-argument register the allocator picks is
++; not fixed by the ABI, so accept any of them.
++; CHECK: bx {{r([4-9]|1[012])}}
++  %vt = load ptr, ptr %this, align 4
++  %s1 = getelementptr inbounds ptr, ptr %vt, i32 1
++  %f1 = load ptr, ptr %s1, align 4
++  %s2 = getelementptr inbounds ptr, ptr %vt, i32 5
++  %f2 = load ptr, ptr %s2, align 4
++  %c = icmp eq ptr %f1, null
++  %fn = select i1 %c, ptr %f2, ptr %f1
++  musttail call arm_aapcs_vfpcc void (ptr, ...) %fn(ptr %this, ...)
++  ret void
++}
++
++; The same defect reaches a second kind of thunk: a this-adjusting ("$4"
++; vtordisp) thunk under virtual inheritance is also a variadic musttail
++; forwarder, but its scratch register holds an offset loaded from the object and
++; its tail branch is direct.  Unlike the virtual member pointer thunks these
++; carry an ordinary mangled name.
++declare arm_aapcs_vfpcc void @adjusted_target(ptr, ...)
++
++define arm_aapcs_vfpcc void @fwd_variadic_thisadjust(ptr %this, ...) nounwind {
++; CHECK-LABEL: fwd_variadic_thisadjust:
++; CHECK: ldr{{(\.w)?}} r12, [r0, #-4]
++; CHECK: sub{{(s|\.w)?}} r0, r0, r12
++  %offp = getelementptr inbounds i8, ptr %this, i32 -4
++  %off = load i32, ptr %offp, align 4
++  %negoff = sub i32 0, %off
++  %adj = getelementptr inbounds i8, ptr %this, i32 %negoff
++  musttail call arm_aapcs_vfpcc void (ptr, ...) @adjusted_target(ptr %adj, ...)
++  ret void
++}
++
++; Control: a non-variadic forwarder whose four arguments already fill r0-r3 was
++; always compiled correctly.  Its output must not change.
++define arm_aapcs_vfpcc void @fwd_nonvariadic_all4(ptr %this, i32 %a, i32 %b, i32 %c) nounwind {
++; CHECK-LABEL: fwd_nonvariadic_all4:
++; CHECK: ldr{{(\.w)?}} r12, [r0]
++; CHECK: ldr{{(\.w)?}} r12, [r12, #4]
++; CHECK: bx r12
++  %vt = load ptr, ptr %this, align 4
++  %slot = getelementptr inbounds ptr, ptr %vt, i32 1
++  %fn = load ptr, ptr %slot, align 4
++  musttail call arm_aapcs_vfpcc void %fn(ptr %this, i32 %a, i32 %b, i32 %c)
++  ret void
++}

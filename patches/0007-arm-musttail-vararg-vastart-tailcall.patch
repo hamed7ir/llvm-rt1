@@ -1,0 +1,432 @@
+rt1 patch 0007 --- [ARM] Let a musttail vararg forwarder that calls va_start be tail-called
+
+Upstream commit in the rt1 tree: a20eeb750.  Closes catalog item #6.
+
+WHAT THE VETO ACTUALLY WAS --- and what the recon got wrong about it.
+
+  ARMISelLowering.cpp:3086-3091 in the unpatched tree reads
+
+      // If Caller's vararg or byval argument has been split between registers and
+      // stack, do not perform tail call, since part of the argument is in caller's
+      // local frame.
+      const ARMFunctionInfo *AFI_Caller = MF.getInfo<ARMFunctionInfo>();
+      if (AFI_Caller->getArgRegsSaveSize())
+        return false;
+
+  scratch/T8/RECON-issue6.md argued in part from "the guard's own comment describes
+  a different hazard (byval split)".  That pillar is STRUCK: the comment names
+  vararg FIRST, and upstream main narrowed the same line to `CLI.IsVarArg &&
+  AFI_Caller->getArgRegsSaveSize()` --- i.e. upstream reads this guard as PRIMARILY
+  about varargs (upstream-check/ARMISelLowering.main.cpp:2877-2884, banked).  That
+  narrowing does not fix #6: a musttail vararg forwarder's call site is variadic by
+  construction, so CLI.IsVarArg is true and the veto still fires.  main:2765-2769
+  now documents the consequence in its own words --- a false return here on a valid
+  musttail call is a fatal backend error --- so upstream knows and has not fixed it.
+
+  The recon's VERDICT (conservative guard, small patch) survives on the other two
+  lines of evidence, and this patch rests on those.
+
+SCOPE --- musttail only, and not Thumb1.
+
+  Same MCAsmInfo::usesWindowsCFI() reasoning as patch 0003: the SEH path is taken by
+  BOTH ARMCOFFMCAsmInfoMicrosoft (thumbv7-*-windows-msvc) and ARMCOFFMCAsmInfoGNU
+  (MinGW ARM32).  rt1 validates on MSVC only; MinGW is in-scope-by-construction, NOT
+  tested.  The three lit RUN lines cover Thumb2/COFF, Thumb2/ELF and ARM mode.
+
+  Thumb1 (including v8m.baseline, which supportsTailCall() allows) is deliberately
+  left on the old path: there the save area is released by
+  Thumb1FrameLowering::emitPopSpecialFixUp, which is written around a tBX_RET /
+  tPOP_RET terminator and not around a TCRETURN.  A v8m.baseline forwarder still
+  reports the fatal error rather than taking an untested epilogue.  This patch
+  touches no frame lowering at all.
+
+WHAT THE LIT DIRECTIVES DO --- discriminating vs pinning, stated honestly.
+
+  39 directives total: 27 CHECK (run three times, once per triple), 11 MIR, 1 FATAL
+  (used by two RUN lines).  MEASURED against three compilers this session:
+
+    * vs the UNPATCHED compiler (rt1 345ce564e / stock 18.1.8): all 38 asm+MIR
+      directives fail --- but for ONE cause, because llc aborts on @fwd_vastart
+      before emitting anything.  Count that as ONE discriminating signal, not 38.
+
+    * vs MUTANT B (the veto loosened for every call, not only musttail): the test
+      FAILS at line 110, `; CHECK: bl plain` in @tail_vastart.  That is the single
+      measured directive that discriminates the SCOPE of the change --- it is the
+      V2 control.  @tail_novastart directly above it is the armed floor: same
+      signature minus va_start, and it does emit a branch, so the directive class
+      demonstrably reads both ways.
+
+    * vs MUTANT A (the new byval veto deleted): the test still PASSES.  So every
+      byval-related directive in this file, including the FATAL line, is a PIN and
+      not a control.  The reason is worth recording: a byval argument reaches
+      MatchingStackOffset (ARMISelLowering.cpp:2984-2998) as a FrameIndex, matches
+      neither the CopyFromReg nor the LoadSDNode case, and falls through to the
+      final `return false`.  So musttail-plus-byval is already refused there.
+
+  The new ByValArgRegsSaveSize guard is therefore DEFENCE IN DEPTH, not a
+  load-bearing decision today, and it is kept for that reason and no other: without
+  it the safety of musttail-plus-byval would rest entirely on a fallthrough in an
+  unrelated helper.  ByValArgRegsSaveSize <= ArgRegsSaveSize always (the va_start
+  block can only lower ArgRegBegin), so for every non-musttail call the two new
+  conditions are exactly equivalent to the single old one.
+
+BLAST RADIUS --- measured, not asserted.
+
+  A/B over llvm/test/CodeGen/{ARM,Thumb,Thumb2}/*.ll --- 2,045 files x 2 triples
+  (thumbv7-unknown-windows-msvc, armv7-unknown-linux-gnueabi) = 4,090 pairs ---
+  comparing llc built at 345ce564e against llc built with this patch:
+
+      compiled and byte-compared : 3,685
+      skipped (BOTH arms failed identically, same exit code) :   405
+      DIFFERING                  :     0
+
+  BYTE-IDENTICAL, and no pair differed even in exit code.  (Five of the skipped
+  pairs segfault BOTH arms identically; that is pre-existing and unrelated.)
+
+  The identity arm is deliberately NOT tools/ab_arm.sh: both arms are built from
+  the SAME commit, so --version is identical by construction and ab_arm_two()
+  would correctly refuse them.  That sameness is the point --- it removes the
+  producer-string confound (the +188 B mechanism that contaminated the Bug-4
+  draft) entirely, since the only difference between the two binaries is this
+  patch.  The arm is instead (a) SHA-256 inequality --- 7497b4bc... vs f47cea50...
+  --- and (b) a behavioural control run before anything is compared: the baseline
+  arm MUST fail on the banked #6 repro (measured rc=3) and the patched arm MUST
+  succeed (measured rc=0).  The comparator itself is armed by injecting a byte
+  into one output and requiring it to be reported; it was.
+  Harness: scratch/T8/w/ab_corpus.sh (bucket LIVE).
+
+  Independently, the lit sweep over CodeGen/{ARM,Thumb,Thumb2} + DebugInfo/COFF
+  is unchanged: 2,468 discovered, the same 24 failing before and after, every one
+  of them exit-127 because llvm-pdbutil / llvm-readelf / llvm-dwarfdump / obj2yaml
+  are not built in this configuration.  No FileCheck mismatch anywhere.
+
+WHAT THIS PATCH DOES NOT ESTABLISH.
+
+  It is validated by lit, by the A/B above, and by the post-PEI MIR arithmetic
+  pinned in the test.  There is NO fleet consumer: Varan emits no musttail +
+  va_start shape, so unlike 0001-0006 this one has never run on a device.  The
+  runtime executable required by scratch/T8/ACCEPTANCE-0007.md V4 --- reading values
+  back through a forwarded va_list against x64-derived expectations --- is NOT part
+  of this patch and is the outstanding acceptance item.
+
+diff --git a/llvm/lib/Target/ARM/ARMISelLowering.cpp b/llvm/lib/Target/ARM/ARMISelLowering.cpp
+index 44dc06f59..a24c677e0 100644
+--- a/llvm/lib/Target/ARM/ARMISelLowering.cpp
++++ b/llvm/lib/Target/ARM/ARMISelLowering.cpp
+@@ -2408,7 +2408,7 @@ ARMTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
+     isTailCall = IsEligibleForTailCallOptimization(
+         Callee, CallConv, isVarArg, isStructRet,
+         MF.getFunction().hasStructRetAttr(), Outs, OutVals, Ins, DAG,
+-        PreferIndirect);
++        PreferIndirect, CLI.CB && CLI.CB->isMustTailCall());
+ 
+     if (isTailCall && !getTargetMachine().Options.GuaranteedTailCallOpt &&
+         CallConv != CallingConv::Tail && CallConv != CallingConv::SwiftTail)
+@@ -3012,7 +3012,7 @@ bool ARMTargetLowering::IsEligibleForTailCallOptimization(
+     const SmallVectorImpl<ISD::OutputArg> &Outs,
+     const SmallVectorImpl<SDValue> &OutVals,
+     const SmallVectorImpl<ISD::InputArg> &Ins, SelectionDAG &DAG,
+-    const bool isIndirect) const {
++    const bool isIndirect, const bool isMustTail) const {
+   MachineFunction &MF = DAG.getMachineFunction();
+   const Function &CallerF = MF.getFunction();
+   CallingConv::ID CallerCC = CallerF.getCallingConv();
+@@ -3083,11 +3083,41 @@ bool ARMTargetLowering::IsEligibleForTailCallOptimization(
+       return false;
+   }
+ 
+-  // If Caller's vararg or byval argument has been split between registers and
+-  // stack, do not perform tail call, since part of the argument is in caller's
+-  // local frame.
++  // The caller's argument-register save area has two independent producers and
++  // LowerFormalArguments collapses both into ArgRegsSaveSize, but only one of
++  // them makes a tail call unsafe:
++  //
++  //  * BYVAL.  A byval argument split between registers and the stack has its
++  //    register half written by StoreByValRegs into a fixed object below the
++  //    CFA, and it is the *address* of that object that is handed to the
++  //    callee.  A tail call releases the object before the callee reads it, so
++  //    this producer vetoes unconditionally.  For a musttail call that means a
++  //    hard error, which is the correct outcome: the alternative is a
++  //    miscompile.
++  //
++  //  * VA_START.  A variadic function's unnamed argument window is spilled to
++  //    the same area, but nothing that outlives this frame points into it.  The
++  //    va_list dies with the caller (a musttail call must be followed by a
++  //    return), ARMFrameLowering::emitEpilogue already releases the area ahead
++  //    of a TCRETURN through ReservedArgStack, and the callee of a musttail
++  //    call is handed the same unnamed registers again through
++  //    ForwardedMustTailRegParms.  Vetoing this costs an ordinary call nothing
++  //    -- it silently becomes a non-tail call -- but LowerCall turns the veto
++  //    into report_fatal_error for a musttail call, so this producer stands
++  //    down for musttail only.  Keeping the veto for every other call keeps the
++  //    output of everything that compiles today unchanged.
++  //
++  // Thumb1 is excluded from that exemption.  There the save area is released by
++  // Thumb1FrameLowering::emitPopSpecialFixUp, which is written around a
++  // tBX_RET/tPOP_RET terminator rather than a TCRETURN; leaving Thumb1 on the
++  // old path keeps its behaviour exactly as it is today.  A v8m.baseline
++  // musttail vararg forwarder that calls va_start therefore still reports the
++  // fatal error rather than silently taking an untested epilogue path.
+   const ARMFunctionInfo *AFI_Caller = MF.getInfo<ARMFunctionInfo>();
+-  if (AFI_Caller->getArgRegsSaveSize())
++  if (AFI_Caller->getByValArgRegsSaveSize())
++    return false;
++  if (AFI_Caller->getArgRegsSaveSize() &&
++      !(isMustTail && !Subtarget->isThumb1Only()))
+     return false;
+ 
+   // If the callee takes no arguments then go on to check the results of the
+@@ -4534,6 +4564,13 @@ SDValue ARMTargetLowering::LowerFormalArguments(
+   }
+   CCInfo.rewindByValRegsInfo();
+ 
++  // Record what the byval parameters alone contribute, before the variadic
++  // window below widens ArgRegBegin.  Once the two are added together in
++  // TotalArgRegsSaveSize they cannot be told apart again, and only the byval
++  // part is pointed into by the callee, so only that part has to veto a tail
++  // call.  See IsEligibleForTailCallOptimization.
++  AFI->setByValArgRegsSaveSize(4 * (ARM::R4 - ArgRegBegin));
++
+   int lastInsIndex = -1;
+   if (isVarArg && MFI.hasVAStart()) {
+     unsigned RegIdx = CCInfo.getFirstUnallocated(GPRArgRegs);
+diff --git a/llvm/lib/Target/ARM/ARMISelLowering.h b/llvm/lib/Target/ARM/ARMISelLowering.h
+index f398b01f4..77fbdab3b 100644
+--- a/llvm/lib/Target/ARM/ARMISelLowering.h
++++ b/llvm/lib/Target/ARM/ARMISelLowering.h
+@@ -944,7 +944,7 @@ class VectorType;
+         const SmallVectorImpl<ISD::OutputArg> &Outs,
+         const SmallVectorImpl<SDValue> &OutVals,
+         const SmallVectorImpl<ISD::InputArg> &Ins, SelectionDAG &DAG,
+-        const bool isIndirect) const;
++        const bool isIndirect, const bool isMustTail) const;
+ 
+     bool CanLowerReturn(CallingConv::ID CallConv,
+                         MachineFunction &MF, bool isVarArg,
+diff --git a/llvm/lib/Target/ARM/ARMMachineFunctionInfo.h b/llvm/lib/Target/ARM/ARMMachineFunctionInfo.h
+index fd1772a8b..039741537 100644
+--- a/llvm/lib/Target/ARM/ARMMachineFunctionInfo.h
++++ b/llvm/lib/Target/ARM/ARMMachineFunctionInfo.h
+@@ -51,6 +51,14 @@ class ARMFunctionInfo : public MachineFunctionInfo {
+   ///
+   unsigned ArgRegsSaveSize = 0;
+ 
++  /// ByValArgRegsSaveSize - The part of ArgRegsSaveSize that byval parameters
++  /// alone account for, recorded by LowerFormalArguments before the variadic
++  /// window and the guaranteed-tail-call reservation are folded in.  The two
++  /// contributions are indistinguishable once collapsed, and they are not
++  /// equally dangerous: the byval half is pointed into by the callee, the
++  /// variadic half is not.  See IsEligibleForTailCallOptimization.
++  unsigned ByValArgRegsSaveSize = 0;
++
+   /// ReturnRegsCount - Number of registers used up in the return.
+   unsigned ReturnRegsCount = 0;
+ 
+@@ -182,6 +190,9 @@ public:
+   unsigned getArgRegsSaveSize() const { return ArgRegsSaveSize; }
+   void setArgRegsSaveSize(unsigned s) { ArgRegsSaveSize = s; }
+ 
++  unsigned getByValArgRegsSaveSize() const { return ByValArgRegsSaveSize; }
++  void setByValArgRegsSaveSize(unsigned s) { ByValArgRegsSaveSize = s; }
++
+   unsigned getReturnRegsCount() const { return ReturnRegsCount; }
+   void setReturnRegsCount(unsigned s) { ReturnRegsCount = s; }
+ 
+diff --git a/llvm/test/CodeGen/ARM/musttail-varargs-vastart.ll b/llvm/test/CodeGen/ARM/musttail-varargs-vastart.ll
+new file mode 100644
+index 000000000..0cc9651d5
+--- /dev/null
++++ b/llvm/test/CodeGen/ARM/musttail-varargs-vastart.ll
+@@ -0,0 +1,191 @@
++; RUN: rm -rf %t && split-file %s %t
++
++; The three triples the other ARM musttail forwarder tests use: Thumb2/COFF with
++; SEH unwind, Thumb2/ELF, and ARM mode.  The epilogue that has to release the
++; argument-register save area before the tail branch is target-independent, so
++; all three must show it.
++; RUN: llc -verify-machineinstrs -mtriple=thumbv7-unknown-windows-msvc %t/tail.ll -o - | FileCheck %s
++; RUN: llc -verify-machineinstrs -mtriple=thumbv7-unknown-linux-gnueabihf %t/tail.ll -o - | FileCheck %s
++; RUN: llc -verify-machineinstrs -mtriple=armv7-unknown-linux-gnueabi %t/tail.ll -o - | FileCheck %s
++
++; The frame, read out of the post-PEI MIR rather than inferred from the asm.
++; RUN: llc -mtriple=thumbv7-unknown-windows-msvc -stop-after=prologepilog %t/tail.ll -o - | FileCheck %s --check-prefix=MIR
++
++; Both shapes that must STILL be rejected.
++; RUN: not --crash llc -mtriple=thumbv7-unknown-windows-msvc %t/byval.ll -o - 2>&1 | FileCheck %s --check-prefix=FATAL
++; RUN: not --crash llc -mtriple=thumbv8m.base-none-eabi %t/thumb1.ll -o - 2>&1 | FileCheck %s --check-prefix=FATAL
++
++; A variadic function that calls va_start gets an argument-register save area,
++; and ARMTargetLowering::IsEligibleForTailCallOptimization used to refuse every
++; tail call out of such a function.  For an ordinary call that is invisible - it
++; silently becomes a non-tail call - but a musttail call has nowhere to go and
++; LowerCall turns the refusal into "failed to perform tail call elimination on a
++; call site marked musttail".  A variadic forwarder that inspects its own
++; arguments before handing them on was therefore not compilable at all.
++;
++; The save area has two producers that LowerFormalArguments adds into one
++; counter: byval parameters split between registers and the stack, and the
++; va_start register window.  Only the byval half is unsafe to tail-call past,
++; because the callee is handed the *address* of the object holding it.  Nothing
++; outlives the frame in the va_start half.
++
++;--- tail.ll
++
++declare void @llvm.va_start(ptr)
++declare void @llvm.va_end(ptr)
++declare void @sink(ptr)
++declare void @plain()
++
++%struct.big = type { [8 x i32] }
++
++; POSITIVE.  This is the shape that used to abort the backend: the whole
++; unnamed window r1-r3 is spilled for va_start, read through the va_list, and
++; then handed on unchanged by a musttail call.
++;
++; Three things have to be true at the branch, and each is asserted below:
++;   1. the save area is allocated and written (sub sp / stm),
++;   2. r1-r3 survive the intervening call and are restored (patch 0003's
++;      forwarding, which only becomes observable now that the call is a real
++;      tail call),
++;   3. SP is back at the incoming value before the branch - the save area is
++;      released *after* the callee-saved pop, by the "add sp, #12" that mirrors
++;      the "sub sp, #12" in the prologue.
++define void @fwd_vastart(ptr %pfn, ...) nounwind {
++; CHECK-LABEL: fwd_vastart:
++; CHECK:       sub sp, {{(sp, )?}}#12
++; CHECK:       stm r0{{!?}}, {r1, r2, r3}
++; CHECK:       bl sink
++; CHECK:       mov r1, r{{[0-9]+}}
++; CHECK-NEXT:  mov r2, r{{[0-9]+}}
++; CHECK-NEXT:  mov r3, r{{[0-9]+}}
++; CHECK:       pop{{(\.w)?}} {
++; CHECK:       add sp, {{(sp, )?}}#12
++; CHECK:       bx r{{[0-9]+$}}
++entry:
++  %ap = alloca ptr, align 4
++  call void @llvm.va_start(ptr %ap)
++  call void @sink(ptr %ap)
++  call void @llvm.va_end(ptr %ap)
++  musttail call void (ptr, ...) %pfn(ptr %pfn, ...)
++  ret void
++}
++
++; POSITIVE, one named prefix argument.  The unnamed window is r2-r3, so the save
++; area is 8 bytes rather than 12 and the epilogue has to release exactly that.
++define void @fwd_vastart_named1(ptr %pfn, i32 %n, ...) nounwind {
++; CHECK-LABEL: fwd_vastart_named1:
++; CHECK:       sub sp, {{(sp, )?}}#8
++; CHECK:       bl sink
++; CHECK:       pop{{(\.w)?}} {
++; CHECK:       add sp, {{(sp, )?}}#8
++; CHECK:       bx r{{[0-9]+$}}
++entry:
++  %ap = alloca ptr, align 4
++  call void @llvm.va_start(ptr %ap)
++  call void @sink(ptr %ap)
++  call void @llvm.va_end(ptr %ap)
++  musttail call void (ptr, i32, ...) %pfn(ptr %pfn, i32 %n, ...)
++  ret void
++}
++
++; ARMED FLOOR for the two negatives below.  Same variadic signature, no
++; va_start, so there is no save area and the tail call happens.  This is what
++; keeps the negatives from being directives that could never read the other way:
++; the very next function differs from this one only by the presence of va_start,
++; and it is required to emit a call-and-return where this one emits a branch.
++define void @tail_novastart(ptr %pfn, ...) nounwind {
++; CHECK-LABEL: tail_novastart:
++; CHECK:       b plain
++entry:
++  tail call void @plain()
++  ret void
++}
++
++; NEGATIVE - the scope of the change.  A NON-musttail call in a va_start
++; variadic function must still not be tail-called; loosening the veto for
++; ordinary calls as well would change the output of code that compiles today.
++define void @tail_vastart(ptr %pfn, ...) nounwind {
++; CHECK-LABEL: tail_vastart:
++; CHECK-NOT:   b plain
++; CHECK:       bl plain
++; CHECK:       bx lr
++entry:
++  %ap = alloca ptr, align 4
++  call void @llvm.va_start(ptr %ap)
++  call void @llvm.va_end(ptr %ap)
++  tail call void @plain()
++  ret void
++}
++
++; NEGATIVE - the hazard being preserved.  %s is a byval argument split between
++; r3 and the stack; StoreByValRegs writes the r3 half into a fixed object below
++; the CFA and hands the callee that object's address.  A tail call would release
++; it first.  The "sub sp, #4" is the byval half of the save area, so this
++; function does have one and still does not tail-call.
++define void @byval_split_tail(i32 %a, i32 %b, i32 %c, ptr byval(%struct.big) align 4 %s) nounwind {
++; CHECK-LABEL: byval_split_tail:
++; CHECK:       sub sp, {{(sp, )?}}#4
++; CHECK:       bl sink
++; CHECK:       bl plain
++; CHECK:       bx lr
++entry:
++  call void @sink(ptr %s)
++  tail call void @plain()
++  ret void
++}
++
++; MIR-LABEL: name: fwd_vastart
++; MIR: hasVAStart: true
++; MIR: hasMustTailInVarArgFunc: true
++; MIR: hasTailCall: true
++;
++; The save area, named rather than inferred: 12 bytes at CFA-12.
++; MIR: fixedStack:
++; MIR-NEXT: - { id: 0, type: default, offset: -12, size: 12,
++;
++; SP at the tail branch: -12 (save area) -24 (six callee-saved) -4 (locals) in
++; the prologue, and +4 +24 +12 in the epilogue, so the branch is taken with SP
++; back at its incoming value.  The TCRETURN's second operand is the SPDiff, and
++; it is 0 - this is a sibling call, so the callee finds its stack arguments
++; exactly where this function found its own.
++; MIR: $sp = frame-setup tSUBspi $sp, 3,
++; MIR: $sp = frame-destroy tADDspi $sp, 1,
++; MIR: $sp = frame-destroy t2LDMIA_UPD $sp,
++; MIR: $sp = frame-destroy tADDspi $sp, 3,
++; MIR: TCRETURNri killed renamable $r0, 0, csr_aapcs, implicit $sp, implicit $r1, implicit $r2, implicit $r3
++
++;--- byval.ll
++
++; The byval half of the save area is not exempted, so a musttail call out of a
++; caller with a split byval argument still fails.  Failing is correct here: the
++; alternative is releasing the object the callee has been handed a pointer to.
++%struct.big = type { [8 x i32] }
++declare void @byval_callee(i32, i32, i32, ptr byval(%struct.big) align 4)
++
++define void @byval_split_musttail(i32 %a, i32 %b, i32 %c, ptr byval(%struct.big) align 4 %s) nounwind {
++entry:
++  musttail call void @byval_callee(i32 %a, i32 %b, i32 %c, ptr byval(%struct.big) align 4 %s)
++  ret void
++}
++
++;--- thumb1.ll
++
++; Thumb1 is deliberately left on the old path.  There the save area is released
++; by Thumb1FrameLowering::emitPopSpecialFixUp, which is written around a
++; tBX_RET/tPOP_RET terminator and not around a TCRETURN, so a v8m.baseline
++; forwarder still reports the error rather than taking an untested epilogue.
++declare void @llvm.va_start(ptr)
++declare void @llvm.va_end(ptr)
++declare void @sink(ptr)
++
++define void @fwd_vastart_thumb1(ptr %pfn, ...) nounwind {
++entry:
++  %ap = alloca ptr, align 4
++  call void @llvm.va_start(ptr %ap)
++  call void @sink(ptr %ap)
++  call void @llvm.va_end(ptr %ap)
++  musttail call void (ptr, ...) %pfn(ptr %pfn, ...)
++  ret void
++}
++
++; FATAL: LLVM ERROR: failed to perform tail call elimination on a call site marked musttail

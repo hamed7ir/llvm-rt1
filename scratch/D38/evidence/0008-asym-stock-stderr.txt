@@ -1,0 +1,57 @@
+PLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/ and include the crash backtrace, preprocessed source, and associated run script.
+Stack dump:
+0.	Program arguments: "C:\\Program Files\\LLVM\\bin\\clang-cl.exe" --target=thumbv7-unknown-windows-msvc -fuse-ld=lld -std:c++17 -fms-compatibility-version=19.00.24213 -c -Id:/repo/mozbuild/palemoon/obj-browser-arm32-jit/dist/stl_wrappers -DNDEBUG=1 -DTRIMMED=1 -DUNICODE -D_UNICODE -D_CRT_RAND_S -DCERT_CHAIN_PARA_HAS_EXTRA_FIELDS -D_SECURE_ATL -DCHROMIUM_BUILD -DU_STATIC_IMPLEMENTATION -DOS_WIN=1 -DWIN32 -D_WIN32 -D_WINDOWS -DWIN32_LEAN_AND_MEAN -DCOMPILER_MSVC -DMOZ_HAS_MOZGLUE -DMOZILLA_INTERNAL_API -DIMPL_LIBXUL -DSTATIC_EXPORTABLE_JS_API -Id:/repo/mozbuild/palemoon/platform/caps -ID:/repo/mozbuild/palemoon/obj-browser-arm32-jit/caps -Id:/repo/mozbuild/palemoon/platform/docshell/base -Id:/repo/mozbuild/palemoon/platform/dom/base -Id:/repo/mozbuild/palemoon/platform/js/xpconnect/src -Id:/repo/mozbuild/palemoon/obj-browser-arm32-jit/ipc/ipdl/_ipdlheaders -Id:/repo/mozbuild/palemoon/platform/ipc/chromium/src -Id:/repo/mozbuild/palemoon/platform/ipc/glue -Id:/repo/mozbuild/palemoon/obj-browser-arm32-jit/dist/include -Id:/repo/mozbuild/palemoon/obj-browser-arm32-jit/dist/include/nspr -Id:/repo/mozbuild/palemoon/obj-browser-arm32-jit/dist/include/nss -MD -FI d:/repo/mozbuild/palemoon/obj-browser-arm32-jit/mozilla-config.h -DMOZILLA_CLIENT -Qunused-arguments -Qunused-arguments -FID:/repo/mozbuild/arm-winnt-shim.h -Wno-error=c++11-narrowing -TP -nologo -wd5026 -wd5027 -Zc:sizedDealloc- -wd4752 -wd4091 -wd4577 -wd5045 -D_HAS_EXCEPTIONS=0 -W3 -Gy -Zc:inline -FS -Gw -wd4251 -wd4244 -wd4267 -wd4345 -wd4351 -wd4800 -wd4595 -Wno-inline-new-delete -Wno-invalid-offsetof -Wno-invalid-constexpr -Wno-microsoft-enum-value -Wno-microsoft-include -Wno-unknown-pragmas -Wno-ignored-pragmas -Wno-deprecated-declarations -Wno-invalid-noreturn -Wno-inconsistent-missing-override -Wno-implicit-exception-spec-mismatch -Wno-unused-local-typedef -Wno-ignored-attributes -we4553 -GR- -O2 -Oi -Oy d:/repo/mozbuild/palemoon/platform/caps/nsNullPrincipal.cpp -fsyntax-only -Wno-error -Xclang -fdump-record-layouts-complete
+1.	D:\Program Files\Vscom\VC\Tools\MSVC\14.16.27023\include\xtr1common:264:3: current parser token ';'
+2.	D:\Program Files\Vscom\VC\Tools\MSVC\14.16.27023\include\xtr1common:15:1 <Spelling=D:\Program Files\Vscom\VC\Tools\MSVC\14.16.27023\include\yvals_core.h:798:20>: parsing namespace 'std'
+3.	D:\Program Files\Vscom\VC\Tools\MSVC\14.16.27023\include\xtr1common:261:2: parsing struct/union/class body 'std::is_integral'
+Exception Code: 0xC0000005
+ #0 0x00007ff6395f3d98 (C:\Program Files\LLVM\bin\clang-cl.exe+0x1d43d98)
+ #1 0x00007ff6395f82b0 (C:\Program Files\LLVM\bin\clang-cl.exe+0x1d482b0)
+ #2 0x00007ff6395f3fc1 (C:\Program Files\LLVM\bin\clang-cl.exe+0x1d43fc1)
+ #3 0x00007ff6397184c7 (C:\Program Files\LLVM\bin\clang-cl.exe+0x1e684c7)
+ #4 0x00007ff6394495ce (C:\Program Files\LLVM\bin\clang-cl.exe+0x1b995ce)
+ #5 0x00007ff6394b7973 (C:\Program Files\LLVM\bin\clang-cl.exe+0x1c07973)
+ #6 0x00007ff6394b5fde (C:\Program Files\LLVM\bin\clang-cl.exe+0x1c05fde)
+ #7 0x00007ff6394e13cd (C:\Program Files\LLVM\bin\clang-cl.exe+0x1c313cd)
+ #8 0x00007ff6394c0842 (C:\Program Files\LLVM\bin\clang-cl.exe+0x1c10842)
+ #9 0x00007ff63934d47a (C:\Program Files\LLVM\bin\clang-cl.exe+0x1a9d47a)
+#10 0x00007ff63934ab59 (C:\Program Files\LLVM\bin\clang-cl.exe+0x1a9ab59)
+#11 0x00007ff639341445 (C:\Program Files\LLVM\bin\clang-cl.exe+0x1a91445)
+#12 0x00007ff6393404d0 (C:\Program Files\LLVM\bin\clang-cl.exe+0x1a904d0)
+#13 0x00007ff63934027c (C:\Program Files\LLVM\bin\clang-cl.exe+0x1a9027c)
+#14 0x00007ff63799d52e (C:\Program Files\LLVM\bin\clang-cl.exe+0xed52e)
+#15 0x00007ff6393419f7 (C:\Program Files\LLVM\bin\clang-cl.exe+0x1a919f7)
+#16 0x00007ff6393404d0 (C:\Program Files\LLVM\bin\clang-cl.exe+0x1a904d0)
+#17 0x00007ff639d2f4df (C:\Program Files\LLVM\bin\clang-cl.exe+0x247f4df)
+#18 0x00007ff639d2f171 (C:\Program Files\LLVM\bin\clang-cl.exe+0x247f171)
+#19 0x00007ff637e617e1 (C:\Program Files\LLVM\bin\clang-cl.exe+0x5b17e1)
+#20 0x00007ff637e61282 (C:\Program Files\LLVM\bin\clang-cl.exe+0x5b1282)
+#21 0x00007ff637e5dfb4 (C:\Program Files\LLVM\bin\clang-cl.exe+0x5adfb4)
+#22 0x00007ff637e5bb30 (C:\Program Files\LLVM\bin\clang-cl.exe+0x5abb30)
+#23 0x00007ff637e5a4fe (C:\Program Files\LLVM\bin\clang-cl.exe+0x5aa4fe)
+#24 0x00007ff638c6e4cd (C:\Program Files\LLVM\bin\clang-cl.exe+0x13be4cd)
+#25 0x00007ff637febc05 (C:\Program Files\LLVM\bin\clang-cl.exe+0x73bc05)
+#26 0x00007ff637feba08 (C:\Program Files\LLVM\bin\clang-cl.exe+0x73ba08)
+#27 0x00007ff637c9f6e8 (C:\Program Files\LLVM\bin\clang-cl.exe+0x3ef6e8)
+#28 0x00007ff637c9f09e (C:\Program Files\LLVM\bin\clang-cl.exe+0x3ef09e)
+#29 0x00007ff637c9ebb7 (C:\Program Files\LLVM\bin\clang-cl.exe+0x3eebb7)
+#30 0x00007ff637c98a47 (C:\Program Files\LLVM\bin\clang-cl.exe+0x3e8a47)
+#31 0x00007ff637c960c3 (C:\Program Files\LLVM\bin\clang-cl.exe+0x3e60c3)
+#32 0x00007ff639db4b70 (C:\Program Files\LLVM\bin\clang-cl.exe+0x2504b70)
+#33 0x00007ffbcdf5e957 (C:\WINDOWS\System32\KERNEL32.DLL+0x2e957)
+#34 0x00007ffbcf00ad6c (C:\WINDOWS\SYSTEM32\ntdll.dll+0xaad6c)
+clang-cl: error: clang frontend command failed due to signal (use -v to see invocation)
+clang version 18.1.8
+Target: thumbv7-unknown-windows-msvc
+Thread model: posix
+InstalledDir: C:\Program Files\LLVM\bin
+clang-cl: note: diagnostic msg: 
+********************
+
+PLEASE ATTACH THE FOLLOWING FILES TO THE BUG REPORT:
+Preprocessed source(s) and associated run script(s) are located at:
+clang-cl: note: diagnostic msg: C:\Users\hamed\AppData\Local\Temp\nsNullPrincipal-ff1722.cpp
+clang-cl: note: diagnostic msg: C:\Users\hamed\AppData\Local\Temp\nsNullPrincipal-ff1722.sh
+clang-cl: note: diagnostic msg: 
+
+********************

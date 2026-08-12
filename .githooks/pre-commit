@@ -1,0 +1,58 @@
+#!/bin/sh
+# rt1 pre-commit --- CONTINUOUS CITED-ARTIFACT TRACKING CHECK.
+#
+# ENABLE (the user runs this once; it is deliberately NOT run by any assistant, because
+# enabling a hook changes how every future commit in this clone behaves):
+#
+#     git config core.hooksPath .githooks
+#
+# DISABLE:  git config --unset core.hooksPath
+#
+# WHAT IT BLOCKS
+#   A commit whose .md documents cite an AUTHORED artifact that is not in version control.
+#   Working rule 1: every claim cites an artifact -- and an artifact a reader cannot obtain
+#   from a fresh clone is evidence in /tmp, whatever directory it happens to sit in.
+#   This defect class has recurred four times here (09677eb, 315965f, 552cbec, dc67dc0);
+#   the fourth arrived twenty minutes after the one-time sweep that was meant to end it.
+#
+# SCOPE
+#   --staged: only the documents in THIS commit.  rt1 has a pre-existing backlog, and a hook
+#   that blocks every commit until the backlog is cleared gets switched off within the hour.
+#   Run the full audit periodically, and before any release:
+#       python tools/check-cited-artifacts.py --list
+#
+# ESCAPE HATCH
+#   git commit --no-verify
+#   Legitimate for a genuine work-in-progress commit.  Routine use means the check is being
+#   ignored rather than satisfied -- which is how the first three recurrences happened.
+
+set -e
+
+ROOT=$(git rev-parse --show-toplevel)
+CHECK="$ROOT/tools/check-cited-artifacts.py"
+
+if [ ! -f "$CHECK" ]; then
+    echo "pre-commit: FATAL: $CHECK is missing." >&2
+    echo "pre-commit: refusing to pass a check that is not there (an absent gate is not a"       >&2
+    echo "            green one).  Restore it or run 'git config --unset core.hooksPath'."       >&2
+    exit 1
+fi
+
+# Windows + git-bash: prefer 'python', fall back to the py launcher, then python3.
+if command -v python >/dev/null 2>&1;   then PY="python"
+elif command -v py >/dev/null 2>&1;     then PY="py -3"
+elif command -v python3 >/dev/null 2>&1; then PY="python3"
+else
+    echo "pre-commit: FATAL: no python interpreter found; cannot run the cited-artifact check." >&2
+    exit 1
+fi
+
+if ! $PY "$CHECK" --staged; then
+    echo ""                                                                       >&2
+    echo "pre-commit: COMMIT BLOCKED -- a document in this commit cites an authored" >&2
+    echo "            artifact that is not in version control (see above)."          >&2
+    echo "            Track the artifact, or justify it in tools/check-cited-artifacts.py" >&2
+    echo "            EXEMPT if it is genuinely third-party or build output."        >&2
+    echo "            Deliberate WIP override: git commit --no-verify"               >&2
+    exit 1
+fi

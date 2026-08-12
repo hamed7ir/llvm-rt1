@@ -1,0 +1,209 @@
+diff --git a/llvm/lib/Target/ARM/ARMFrameLowering.cpp b/llvm/lib/Target/ARM/ARMFrameLowering.cpp
+index 9b54dd4e4..79c15c60f 100644
+--- a/llvm/lib/Target/ARM/ARMFrameLowering.cpp
++++ b/llvm/lib/Target/ARM/ARMFrameLowering.cpp
+@@ -960,8 +960,18 @@ void ARMFrameLowering::emitPrologue(MachineFunction &MF,
+     //
+     // Adjust NumBytes to represent the stack slots below the DPRCS2 area.
+     NumBytes += MFI.getObjectOffset(D8SpillFI);
+-  } else
++  } else if (STI.splitFramePointerPush(MF)) {
++    // With a split frame pointer push, spill area 2 (the {r11,lr} pair) is
++    // pushed *after* the DPR area - it is emitted just below, and so is not
++    // part of the local allocation that still has to be made here. The
++    // remaining allocation is therefore GPRCS2Offset, computed above as
++    // DPRCSOffset - GPRCS2Size. Using DPRCSOffset would lower SP by GPRCS2Size
++    // too much, which leaves FP-relative frame references correct but puts
++    // every SP- and BP-relative one that many bytes below its assigned slot.
++    NumBytes = GPRCS2Offset;
++  } else {
+     NumBytes = DPRCSOffset;
++  }
+ 
+   if (GPRCS2Size > 0 && STI.splitFramePointerPush(MF)) {
+     GPRCS2Push = LastPush = MBBI++;
+diff --git a/llvm/test/CodeGen/ARM/Windows/split-fp-push-frame-size.ll b/llvm/test/CodeGen/ARM/Windows/split-fp-push-frame-size.ll
+new file mode 100644
+index 000000000..f3e8016a4
+--- /dev/null
++++ b/llvm/test/CodeGen/ARM/Windows/split-fp-push-frame-size.ll
+@@ -0,0 +1,131 @@
++;; Windows ARM32 uses the "split frame pointer push" when the function has an
++;; unwind table entry and either a variable sized object or a realigned stack:
++;; the {r11,lr} pair (spill area 2) is pushed *below* every other callee-saved
++;; register, and r11 is set to SP right after that push. In that layout the
++;; final local allocation must be ARMFrameLowering's GPRCS2Offset, i.e.
++;; DPRCSOffset - GPRCS2Size, not DPRCSOffset: the {r11,lr} push has not been
++;; emitted yet at that point, so its 8 bytes are not part of what is left to
++;; allocate. Lowering SP by 8 too much keeps FP-relative frame references
++;; correct - they are anchored on the pushed r11 - while putting every SP- and
++;; BP-relative reference 8 bytes below its assigned slot, so a stack object
++;; reached through both bases is read and written 8 bytes apart.
++;;
++;; The property under test is that the prologue's SP decrements add up to the
++;; MFI stack size, and that one frame object has one address. @no_split_push is
++;; a matched control: same body, only nounwind added, which turns off the split
++;; push. Both functions have stack size 888 and must lower SP by 888 in total.
++
++; RUN: llc -mtriple=thumbv7-windows -o - %s -verify-machineinstrs | FileCheck %s
++;; Also write an object file, which verifies that the SEH opcodes match the
++;; actual prologue/epilogue length.
++; RUN: llc -mtriple=thumbv7-windows -filetype=obj -o %t.obj %s -verify-machineinstrs
++; RUN: llc -mtriple=thumbv7-windows -stop-after=prologepilog -o - %s | FileCheck %s --check-prefix=MIR
++
++declare arm_aapcs_vfpcc void @use(ptr)
++declare arm_aapcs_vfpcc void @eat(ptr)
++declare arm_aapcs_vfpcc void @touch(ptr)
++
++;; 888 == 16 ({r4-r7}) + 8 ({r11,lr}) + 864.
++; CHECK-LABEL: split_fp_push:
++; CHECK:              push    {r4, r5, r6, r7}
++; CHECK-NEXT:         .seh_save_regs  {r4-r7}
++; CHECK-NEXT:         push.w  {r11, lr}
++; CHECK-NEXT:         .seh_save_regs_w        {r11, lr}
++; CHECK-NEXT:         mov     r11, sp
++; CHECK-NEXT:         .seh_save_sp    r11
++; CHECK-NEXT:         .seh_endprologue
++; CHECK-NEXT:         sub.w   sp, sp, #864
++
++;; %rd is at MFI offset -248, so it is 888 - 248 == 640 above the final SP and
++;; 248 - 24 == 224 below r11. Its stores go through the base pointer r6 (via the
++;; virtual base register LocalStackSlotAllocation anchors at r6 + 160, reaching
++;; %rd at + 480), while its address is taken off r11. Those two must denote the
++;; same address, which holds exactly when the prologue lowered SP by 888.
++; CHECK:              mov     r6, sp
++; CHECK:              add.w   [[VBASE:r[0-9]+]], r6, #160
++; CHECK:              sub.w   r0, r11, #224
++; CHECK:              str.w   r{{[0-9]+}}, [[[VBASE]], #480]
++
++; MIR-LABEL: name:            split_fp_push
++; MIR:         stackSize:       888
++; MIR:         - { id: 1, name: rd, type: default, offset: -248,
++; MIR:         frame-setup tPUSH {{.*}}$r4{{.*}}$r7
++; MIR:         $sp = frame-setup t2STMDB_UPD $sp, {{.*}}$r11, killed $lr
++; MIR:         $sp = frame-setup t2SUBspImm killed $sp, 864,
++
++define dso_local arm_aapcs_vfpcc void @split_fp_push(i32 %n) uwtable {
++entry:
++  %pad = alloca [168 x i8], align 1
++  %rd = alloca [56 x i8], align 4
++  %far = alloca [160 x i32], align 4
++  %vla = alloca i8, i32 %n, align 8
++  call arm_aapcs_vfpcc void @touch(ptr %pad)
++  ;; %far is the bottom-most object; it anchors the virtual base register.
++  %f0 = getelementptr i32, ptr %far, i32 0
++  %f1 = getelementptr i32, ptr %far, i32 40
++  %f2 = getelementptr i32, ptr %far, i32 100
++  %f3 = getelementptr i32, ptr %far, i32 159
++  store i32 %n, ptr %f0
++  store i32 %n, ptr %f1
++  store i32 %n, ptr %f2
++  store i32 %n, ptr %f3
++  ;; %rd lands 224 bytes below r11, inside the window where the address-of
++  ;; resolves via r11 but the accesses go through the base pointer.
++  %r0 = getelementptr i8, ptr %rd, i32 0
++  %r1 = getelementptr i8, ptr %rd, i32 8
++  %r2 = getelementptr i8, ptr %rd, i32 20
++  %r3 = getelementptr i8, ptr %rd, i32 52
++  store i32 %n, ptr %r0
++  store i32 %n, ptr %r1
++  store ptr %vla, ptr %r2
++  store i32 %n, ptr %r3
++  call arm_aapcs_vfpcc void @use(ptr %rd)
++  call arm_aapcs_vfpcc void @eat(ptr %far)
++  ret void
++}
++
++;; Control: nounwind clears needsUnwindTableEntry, so this is a single push and
++;; the ordinary DPRCSOffset path. 888 == 24 ({r4-r7,r11,lr}) + 864, and %rd is
++;; 248 - 8 == 240 below r11.
++; CHECK-LABEL: no_split_push:
++; CHECK:              push.w  {r4, r5, r6, r7, r11, lr}
++; CHECK-NEXT:         add.w   r11, sp, #16
++; CHECK-NEXT:         sub.w   sp, sp, #864
++; CHECK:              mov     r6, sp
++; CHECK:              add.w   [[VBASE2:r[0-9]+]], r6, #160
++; CHECK:              sub.w   r0, r11, #240
++; CHECK:              str.w   r{{[0-9]+}}, [[[VBASE2]], #480]
++
++; MIR-LABEL: name:            no_split_push
++; MIR:         stackSize:       888
++; MIR:         - { id: 1, name: rd, type: default, offset: -248,
++; MIR:         $sp = frame-setup t2STMDB_UPD $sp, {{.*}}$r4{{.*}}killed $lr
++; MIR:         $sp = frame-setup t2SUBspImm killed $sp, 864,
++
++define dso_local arm_aapcs_vfpcc void @no_split_push(i32 %n) nounwind {
++entry:
++  %pad = alloca [168 x i8], align 1
++  %rd = alloca [56 x i8], align 4
++  %far = alloca [160 x i32], align 4
++  %vla = alloca i8, i32 %n, align 8
++  call arm_aapcs_vfpcc void @touch(ptr %pad)
++  %f0 = getelementptr i32, ptr %far, i32 0
++  %f1 = getelementptr i32, ptr %far, i32 40
++  %f2 = getelementptr i32, ptr %far, i32 100
++  %f3 = getelementptr i32, ptr %far, i32 159
++  store i32 %n, ptr %f0
++  store i32 %n, ptr %f1
++  store i32 %n, ptr %f2
++  store i32 %n, ptr %f3
++  %r0 = getelementptr i8, ptr %rd, i32 0
++  %r1 = getelementptr i8, ptr %rd, i32 8
++  %r2 = getelementptr i8, ptr %rd, i32 20
++  %r3 = getelementptr i8, ptr %rd, i32 52
++  store i32 %n, ptr %r0
++  store i32 %n, ptr %r1
++  store ptr %vla, ptr %r2
++  store i32 %n, ptr %r3
++  call arm_aapcs_vfpcc void @use(ptr %rd)
++  call arm_aapcs_vfpcc void @eat(ptr %far)
++  ret void
++}
+diff --git a/llvm/test/CodeGen/ARM/Windows/wineh-framepointer.ll b/llvm/test/CodeGen/ARM/Windows/wineh-framepointer.ll
+index 17197006d..28036cb70 100644
+--- a/llvm/test/CodeGen/ARM/Windows/wineh-framepointer.ll
++++ b/llvm/test/CodeGen/ARM/Windows/wineh-framepointer.ll
+@@ -1,4 +1,10 @@
+ ;; Check that this produces the expected assembly output
++;;
++;; All three functions here use the split frame pointer push, so the size of
++;; spill area 2 ({r11,lr}, 8 bytes) is not part of the local allocation that the
++;; __chkstk sequence makes: the total of the prologue's SP decrements has to be
++;; the function's MFI stack size. See split-fp-push-frame-size.ll - the
++;; __chkstk word counts below used to be 2 words (8 bytes) too large.
+ ; RUN: llc -mtriple=thumbv7-windows -o - %s -verify-machineinstrs | FileCheck %s
+ ;; Also try to write an object file, which verifies that the SEH opcodes
+ ;; match the actual prologue/epilogue length.
+@@ -18,7 +24,9 @@
+ ; CHECK-NEXT:         mov     r11, sp
+ ; CHECK-NEXT:         .seh_save_sp    r11
+ ; CHECK-NEXT:         .seh_endprologue
+-; CHECK-NEXT:         movw    r4, #1256
++;; stack size 5120 == 28 ({r4-r10}) + 4 (DPR gap) + 64 ({d8-d15}) + 8 ({r11,lr})
++;; + 5016, and 5016 == 1254 * 4.
++; CHECK-NEXT:         movw    r4, #1254
+ ; CHECK-NEXT:         bl      __chkstk
+ ; CHECK-NEXT:         sub.w   sp, sp, r4
+ ; CHECK-NEXT:         mov     r4, sp
+@@ -77,7 +85,9 @@ declare arm_aapcs_vfpcc void @other(i32 noundef, ptr noundef, ptr noundef)
+ ; CHECK-NEXT:         mov     r11, sp
+ ; CHECK-NEXT:         .seh_save_sp    r11
+ ; CHECK-NEXT:         .seh_endprologue
+-; CHECK-NEXT:         movw    r4, #1258
++;; stack size 5136 == 12 (vararg regs) + 24 ({r4-r9}) + 4 (DPR gap)
++;; + 64 ({d8-d15}) + 8 ({r11,lr}) + 5024, and 5024 == 1256 * 4.
++; CHECK-NEXT:         movw    r4, #1256
+ ; CHECK-NEXT:         bl      __chkstk
+ ; CHECK-NEXT:         sub.w   sp, sp, r4
+ ; CHECK-NEXT:         mov     r4, sp
+@@ -132,7 +142,9 @@ entry:
+ ; CHECK-NEXT:         mov     r11, sp
+ ; CHECK-NEXT:         .seh_save_sp    r11
+ ; CHECK-NEXT:         .seh_endprologue
+-; CHECK-NEXT:         movw    r4, #1259
++;; stack size 5072 == 12 (vararg regs) + 24 ({r4-r9}) + 8 ({r11,lr}) + 5028,
++;; and 5028 == 1257 * 4.
++; CHECK-NEXT:         movw    r4, #1257
+ ; CHECK-NEXT:         bl      __chkstk
+ ; CHECK-NEXT:         sub.w   sp, sp, r4
+ ; CHECK-NEXT:         mov     r4, sp

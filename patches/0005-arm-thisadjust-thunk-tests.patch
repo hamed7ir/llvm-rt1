@@ -1,0 +1,127 @@
+rt1 patch 0005 --- [ARM] Add lit coverage for this-adjusting musttail vararg forwarders
+
+Upstream commit in the rt1 tree: 386331553.
+
+WHAT THESE TESTS ACTUALLY DO --- corrected description.
+
+  The commit message for 386331553 overstates their discriminating power. MEASURED
+  (RT-CLANG-FIX-1.md section 3): of the 13 CHECK directives in
+  musttail-varargs-forward-thisadjust.ll, exactly ONE discriminates a patched from an
+  unpatched compiler; of the 6 MIR directives, exactly ONE does.
+
+  The other twelve CHECKs and five MIR directives PIN ADDRESSING. That is genuinely
+  valuable coverage --- they would catch a wrong fix applied in the frame-index
+  resolvers instead of in the calling-convention code, which is the most plausible
+  way to "fix" this bug in the wrong place. Keep them.
+
+  But they are PINS, not CONTROLS. A control is a directive that fails on unpatched
+  output; these do not. In particular the commit message's closing claim ---
+
+      "A non-variadic forwarder whose four arguments already fill r0-r3 is included
+       as a control: it was always compiled correctly, which is what shows the live
+       argument window is the whole difference."
+
+  --- describes a case that passes on BOTH the patched and the unpatched compiler.
+  It documents the boundary of the bug; it does not control for it. The single
+  discriminating CHECK is what makes this file a regression test at all.
+
+  The git commit message is left as written: amending it would rewrite every
+  downstream commit hash, including 345ce564e, which is embedded in the built
+  binaries' version string and cited throughout the rt1 reports. This header is the
+  correction of record.
+
+diff --git a/llvm/test/CodeGen/ARM/musttail-varargs-forward-thisadjust.ll b/llvm/test/CodeGen/ARM/musttail-varargs-forward-thisadjust.ll
+new file mode 100644
+index 000000000..a835edb29
+--- /dev/null
++++ b/llvm/test/CodeGen/ARM/musttail-varargs-forward-thisadjust.ll
+@@ -0,0 +1,89 @@
++; RUN: llc -verify-machineinstrs -mtriple=thumbv7-unknown-windows-msvc %s -o - | FileCheck %s
++; RUN: llc -verify-machineinstrs -mtriple=armv7-unknown-linux-gnueabihf %s -o - | FileCheck %s
++; RUN: llc -verify-machineinstrs -mtriple=armv7-unknown-linux-gnueabi %s -o - | FileCheck %s
++
++; The this-adjusting thunks of the Microsoft C++ ABI are variadic musttail
++; forwarders too, so they have to keep the unnamed argument registers intact for
++; the same reason a virtual member pointer thunk does.  They differ from it in
++; two ways that are worth covering separately: the register they need is a scratch
++; for an offset loaded out of the object rather than the branch target, the tail
++; branch is direct, and the "vtordispex" form needs two live values at once
++; because it walks a vbptr and then a vbtable.
++;
++; Clang reaches these shapes whenever the overrider's signature contains a type
++; it cannot lower yet - a member pointer to an incomplete class, or an incomplete
++; class passed by value - which makes the thunk unprototyped and therefore a
++; perfect-forwarding musttail thunk.  See clang/test/CodeGenCXX/ms-thunks-unprototyped.cpp
++; for the front end side.  The mangled names are "$4"/"$2"/"$0" (vtordisp) and
++; "$R4"/"$R2"/"$R0" (vtordispex); unlike "??_9...$B..." these look like ordinary
++; C++ symbols, so nothing downstream can pick them out by name.
++
++declare arm_aapcs_vfpcc void @adjusted_target(ptr, ...)
++declare arm_aapcs_vfpcc void @adjusted_target_ex(ptr, ...)
++declare arm_aapcs_vfpcc void @adjusted_target_nv(ptr, i32, i32, i32)
++
++; The "$4" vtordisp form: one load, one subtract, one direct tail branch.  The
++; unnamed arguments occupy r1-r3, so the offset has to be loaded somewhere else.
++define arm_aapcs_vfpcc void @vtordisp_thunk(ptr %this, ...) nounwind {
++; CHECK-LABEL: vtordisp_thunk:
++; CHECK:       ldr{{(\.w)?}} r12, [r0, #-4]
++; CHECK-NOT:   ldr{{(\.w)?}} r1,
++; CHECK-NOT:   ldr{{(\.w)?}} r2,
++; CHECK-NOT:   ldr{{(\.w)?}} r3,
++; CHECK:       sub{{(\.w)?}} r0, r0, r12
++; CHECK:       b{{(\.w)?}} adjusted_target
++  %offp = getelementptr inbounds i8, ptr %this, i32 -4
++  %off = load i32, ptr %offp, align 4
++  %negoff = sub i32 0, %off
++  %adj = getelementptr i8, ptr %this, i32 %negoff
++  musttail call arm_aapcs_vfpcc void (ptr, ...) @adjusted_target(ptr %adj, ...)
++  ret void
++}
++
++; The "$R" vtordispex form: vtordisp, then the vbptr, then a vbase offset out of
++; the vbtable.  Two values are live across the middle of it, and only one register
++; outside the argument window is available, so this is the shape that fails first
++; if the forwarded registers are not modelled.  Which registers the allocator
++; picks for the second value is not fixed by the ABI, so the assertions below pin
++; only the first load and then forbid every argument register for the rest of the
++; body; the final branch keeps the whole run from passing on a truncated body.
++define arm_aapcs_vfpcc void @vtordispex_thunk(ptr %this, ...) nounwind {
++; CHECK-LABEL: vtordispex_thunk:
++; CHECK:       ldr{{(\.w)?}} r12, [r0, #-4]
++; CHECK-NOT:   ldr{{(\.w)?}} r1,
++; CHECK-NOT:   ldr{{(\.w)?}} r2,
++; CHECK-NOT:   ldr{{(\.w)?}} r3,
++; CHECK:       b{{(\.w)?}} adjusted_target_ex
++  %offp = getelementptr inbounds i8, ptr %this, i32 -4
++  %off = load i32, ptr %offp, align 4
++  %negoff = sub i32 0, %off
++  %adj = getelementptr i8, ptr %this, i32 %negoff
++  %vbptrp = getelementptr inbounds i8, ptr %adj, i32 -8
++  %vbtable = load ptr, ptr %vbptrp, align 4
++  %vbslot = getelementptr inbounds i32, ptr %vbtable, i32 2
++  %vbase = load i32, ptr %vbslot, align 4
++  %adj2 = getelementptr inbounds i8, ptr %vbptrp, i32 %vbase
++  %adj3 = getelementptr i8, ptr %adj2, i32 8
++  musttail call arm_aapcs_vfpcc void (ptr, ...) @adjusted_target_ex(ptr %adj3, ...)
++  ret void
++}
++
++; Control: the same adjustment in a non-variadic forwarder whose four arguments
++; already fill r0-r3.  This one was compiled correctly before the forwarded
++; registers were modelled, which is what shows that the argument window being
++; live is the whole difference; its output must not change.
++define arm_aapcs_vfpcc void @vtordisp_nonvariadic_control(ptr %this, i32 %a, i32 %b, i32 %c) nounwind {
++; CHECK-LABEL: vtordisp_nonvariadic_control:
++; CHECK:       ldr{{(\.w)?}} r12, [r0, #-4]
++; CHECK-NOT:   ldr{{(\.w)?}} r1,
++; CHECK-NOT:   ldr{{(\.w)?}} r2,
++; CHECK-NOT:   ldr{{(\.w)?}} r3,
++; CHECK:       sub{{(\.w)?}} r0, r0, r12
++; CHECK:       b{{(\.w)?}} adjusted_target_nv
++  %offp = getelementptr inbounds i8, ptr %this, i32 -4
++  %off = load i32, ptr %offp, align 4
++  %negoff = sub i32 0, %off
++  %adj = getelementptr i8, ptr %this, i32 %negoff
++  musttail call arm_aapcs_vfpcc void @adjusted_target_nv(ptr %adj, i32 %a, i32 %b, i32 %c)
++  ret void
++}

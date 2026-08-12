@@ -1,0 +1,19 @@
+# rt1 public repository — deliberately minimal.
+#
+# This is a curated repository, not a working tree. Everything in it was selected against a
+# measured list of what the shipping documents cite; nothing arrives here by accident, so there
+# is little to exclude. If you find yourself adding broad patterns, prefer not copying the file.
+
+# Release assets are attached to the GitHub release, not committed. The archive is ~209 MB and
+# is regenerable from the source tag plus patches/ — see stage/MODIFICATIONS.txt.
+dist/
+
+# Build output, if anyone builds in-tree.
+build*/
+*.obj
+*.pdb
+*.exe
+*.dll
+*.lib
+__pycache__/
+*.pyc

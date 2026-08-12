@@ -1,0 +1,121 @@
+diff --git a/lld/COFF/Chunks.cpp b/lld/COFF/Chunks.cpp
+index e2074932b..1c01c6c36 100644
+--- a/lld/COFF/Chunks.cpp
++++ b/lld/COFF/Chunks.cpp
+@@ -868,7 +868,14 @@ void LocalImportChunk::writeTo(uint8_t *buf) const {
+   if (ctx.config.is64()) {
+     write64le(buf, sym->getRVA() + ctx.config.imageBase);
+   } else {
+-    write32le(buf, sym->getRVA() + ctx.config.imageBase);
++    uint32_t bit = 0;
++    // Pointer to thumb code must have the LSB set, so adjust it. Only code is
++    // adjusted: dllimport of a locally defined variable is valid, and the
++    // pointer to such a variable must stay unmodified.
++    if (ctx.config.machine == ARMNT && sym->getChunk() &&
++        (sym->getChunk()->getOutputCharacteristics() & IMAGE_SCN_MEM_EXECUTE))
++      bit = 1;
++    write32le(buf, (sym->getRVA() + ctx.config.imageBase) | bit);
+   }
+ }
+ 
+diff --git a/lld/test/COFF/locally-imported-armnt.test b/lld/test/COFF/locally-imported-armnt.test
+new file mode 100644
+index 000000000..9dd036d9b
+--- /dev/null
++++ b/lld/test/COFF/locally-imported-armnt.test
+@@ -0,0 +1,95 @@
++## When a dllimport reference turns out to be locally defined, lld synthesises
++## the __imp_ pointer itself (LocalImportChunk). On ARMNT a pointer to thumb
++## code must have its low bit set, while a pointer to data must not be adjusted.
++## Check both cases.
++
++## A locally imported FUNCTION: the stored pointer must be odd.
++# RUN: yaml2obj --docnum=1 %s -o %t1.obj
++# RUN: lld-link /out:%t1.exe /entry:main /subsystem:console %t1.obj
++# RUN: llvm-objdump -s %t1.exe | FileCheck --check-prefix=CODE %s
++
++## main is at .text+0, so RVA 0x1000 and VA 0x401000. The slot at .text+4 gets
++## the RVA of the synthesised pointer, which is the first chunk of .rdata.
++# CODE:      Contents of section .text:
++# CODE-NEXT: 401000 704700bf 00200000
++# CODE:      Contents of section .rdata:
++# CODE-NEXT: 402000 01104000
++
++--- !COFF
++header:
++  Machine:         IMAGE_FILE_MACHINE_ARMNT
++  Characteristics: []
++sections:
++  - Name:            .text
++    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
++    Alignment:       4
++    SectionData:     704700BF00000000
++    Relocations:
++      - VirtualAddress:  4
++        SymbolName:      __imp_main
++        Type:            IMAGE_REL_ARM_ADDR32NB
++symbols:
++  - Name:            main
++    Value:           0
++    SectionNumber:   1
++    SimpleType:      IMAGE_SYM_TYPE_NULL
++    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
++    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
++  - Name:            __imp_main
++    Value:           0
++    SectionNumber:   0
++    SimpleType:      IMAGE_SYM_TYPE_NULL
++    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
++    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
++...
++
++## A locally imported VARIABLE: dllimport on a locally defined global is valid,
++## and consumers dereference the pointer, so it must stay even.
++# RUN: yaml2obj --docnum=2 %s -o %t2.obj
++# RUN: lld-link /out:%t2.exe /entry:main /subsystem:console %t2.obj
++# RUN: llvm-objdump -s %t2.exe | FileCheck --check-prefix=DATA %s
++
++## mydata is at .rdata+0, so RVA 0x2000 and VA 0x402000. The synthesised pointer
++## is appended to .rdata after the input chunk, landing at RVA 0x2004.
++# DATA:      Contents of section .text:
++# DATA-NEXT: 401000 704700bf 04200000
++# DATA:      Contents of section .rdata:
++# DATA-NEXT: 402000 2a000000 00204000
++
++--- !COFF
++header:
++  Machine:         IMAGE_FILE_MACHINE_ARMNT
++  Characteristics: []
++sections:
++  - Name:            .text
++    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
++    Alignment:       4
++    SectionData:     704700BF00000000
++    Relocations:
++      - VirtualAddress:  4
++        SymbolName:      __imp_mydata
++        Type:            IMAGE_REL_ARM_ADDR32NB
++  - Name:            .rdata
++    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ ]
++    Alignment:       4
++    SectionData:     2A000000
++symbols:
++  - Name:            main
++    Value:           0
++    SectionNumber:   1
++    SimpleType:      IMAGE_SYM_TYPE_NULL
++    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
++    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
++  - Name:            mydata
++    Value:           0
++    SectionNumber:   2
++    SimpleType:      IMAGE_SYM_TYPE_NULL
++    ComplexType:     IMAGE_SYM_DTYPE_NULL
++    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
++  - Name:            __imp_mydata
++    Value:           0
++    SectionNumber:   0
++    SimpleType:      IMAGE_SYM_TYPE_NULL
++    ComplexType:     IMAGE_SYM_DTYPE_NULL
++    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
++...

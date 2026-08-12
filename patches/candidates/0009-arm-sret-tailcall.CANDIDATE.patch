@@ -1,0 +1,126 @@
+From 515c0033fd92f8edd7218616f0e0bf7375cd304e Mon Sep 17 00:00:00 2001
+From: hamed7ir <hamedghorbani17@live.com>
+Date: Sun, 9 Aug 2026 08:26:16 -0700
+Subject: [PATCH] [ARM] Allow functions with sret returns to be tail-called
+
+Backport of upstream 82e64721974b1ed9b112ca98466fa29d21dffc33, "[ARM]
+Allow functions with sret returns to be tail-called", Oliver Stannard
+(Arm), authored 2024-09-24, committed 2024-10-25.  First shipped in
+LLVM 20; never backported to 18.x or 19.x.
+
+Upstream's own message states the reasoning: "It is valid to tail-call a
+function which returns through an sret argument, as long as we have an
+incoming sret pointer to pass on."
+
+The predicate at ARMISelLowering.cpp:3051 refused a sibling call whenever
+EITHER side used struct-return semantics.  It should refuse only on a
+MISMATCH: when caller and callee both return by sret, the callee returns
+through the caller's own incoming sret pointer, which is simply passed
+on.  The mismatched cases are still refused, and that half is what bounds
+the change.
+
+Scope, deliberately narrower than the upstream commit's context:
+  * the operator change ONLY.  Upstream's surrounding LLVM_DEBUG tracing
+    arrived in a SEPARATE, earlier commit and is not backported -- it
+    changes nothing and would add diff noise.
+  * the comment above the predicate is updated, because after the change
+    it described the opposite behaviour.  Leaving a false comment is
+    worse than a two-line diff.
+  * upstream's test additions land in llvm/test/CodeGen/ARM/musttail-sret.ll
+    rather than musttail.ll, which does not exist at llvmorg-18.1.8.  The
+    IR and CHECK lines are upstream's; a third function asserting the
+    MISMATCHED case is still refused is ours.
+
+*** THIS PATCH IS AUTHORED, NOT ACCEPTED. ***
+
+The change makes sret-caller -> sret-callee tail calls REACHABLE for the
+first time in 18.x's lowering, which is the same hazard class as 0007's
+V1 and the refuted blunt-r12 fix.  rc=0 is NOT acceptance.  Required
+before it ships, and none of it is done yet:
+  (a) post-PEI MIR + disassembly showing the hidden sret pointer
+      forwarded intact and SP correct at the branch, arithmetic written
+      out;
+  (b) a self-checking ARM32 executable that reads the returned struct's
+      FIELDS back and fails loudly per case, with expectations derived by
+      running the same source on x64;
+  (c) an armed floor -- a control shape that FAILS on stock, so "fixed"
+      is distinguishable from "never broken".
+If (a) or (b) cannot be shown clean this patch is DROPPED.  D37 is a loud
+compile-time refusal, not silent wrong code, so not shipping is a
+legitimate outcome.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ llvm/lib/Target/ARM/ARMISelLowering.cpp |  7 +++--
+ llvm/test/CodeGen/ARM/musttail-sret.ll  | 41 +++++++++++++++++++++++++
+ 2 files changed, 45 insertions(+), 3 deletions(-)
+ create mode 100644 llvm/test/CodeGen/ARM/musttail-sret.ll
+
+diff --git a/llvm/lib/Target/ARM/ARMISelLowering.cpp b/llvm/lib/Target/ARM/ARMISelLowering.cpp
+index a24c677e0..5b465a0fd 100644
+--- a/llvm/lib/Target/ARM/ARMISelLowering.cpp
++++ b/llvm/lib/Target/ARM/ARMISelLowering.cpp
+@@ -3046,9 +3046,10 @@ bool ARMTargetLowering::IsEligibleForTailCallOptimization(
+   if (canGuaranteeTCO(CalleeCC, getTargetMachine().Options.GuaranteedTailCallOpt))
+     return CalleeCC == CallerCC;
+ 
+-  // Also avoid sibcall optimization if either caller or callee uses struct
+-  // return semantics.
+-  if (isCalleeStructRet || isCallerStructRet)
++  // Avoid sibcall optimization if only one of caller and callee uses struct
++  // return semantics.  When both do, the callee returns through the caller's
++  // own incoming sret pointer, which is simply passed on.
++  if (isCalleeStructRet != isCallerStructRet)
+     return false;
+ 
+   // Externally-defined functions with weak linkage should not be
+diff --git a/llvm/test/CodeGen/ARM/musttail-sret.ll b/llvm/test/CodeGen/ARM/musttail-sret.ll
+new file mode 100644
+index 000000000..aa25eec48
+--- /dev/null
++++ b/llvm/test/CodeGen/ARM/musttail-sret.ll
+@@ -0,0 +1,41 @@
++; RUN: llc -mtriple=thumbv7-unknown-windows-msvc %s -o - | FileCheck %s
++; RUN: llc -mtriple=armv7-unknown-linux-gnueabihf %s -o - | FileCheck %s
++
++; Backport of the two functions added to llvm/test/CodeGen/ARM/musttail.ll by
++; upstream 82e64721974b ("[ARM] Allow functions with sret returns to be
++; tail-called").  That file does not exist at llvmorg-18.1.8, so the cases live
++; here instead; the IR and the CHECK lines are upstream's.
++
++declare void @sret_callee(ptr sret({ double, double }) align 8)
++
++; Functions which return by sret can be tail-called because the incoming sret
++; pointer gets passed through to the callee.
++define void @sret_caller_tail(ptr sret({ double, double }) align 8 %result) {
++; CHECK-LABEL: sret_caller_tail:
++; CHECK:       %bb.0: %entry
++; CHECK-NEXT:    b sret_callee
++entry:
++  tail call void @sret_callee(ptr sret({ double, double }) align 8 %result)
++  ret void
++}
++
++define void @sret_caller_musttail(ptr sret({ double, double }) align 8 %result) {
++; CHECK-LABEL: sret_caller_musttail:
++; CHECK:       %bb.0: %entry
++; CHECK-NEXT:    b sret_callee
++entry:
++  musttail call void @sret_callee(ptr sret({ double, double }) align 8 %result)
++  ret void
++}
++
++; The mismatched cases must STILL be refused -- this is the half of the
++; predicate the operator change preserves, and without it the change would be
++; unbounded.  rt1 addition, not upstream's.
++declare void @plain_callee()
++define void @sret_caller_plain_callee(ptr sret({ double, double }) align 8 %result) {
++; CHECK-LABEL: sret_caller_plain_callee:
++; CHECK-NOT:     b plain_callee
++entry:
++  call void @plain_callee()
++  ret void
++}
+-- 
+2.53.0.windows.3
+
