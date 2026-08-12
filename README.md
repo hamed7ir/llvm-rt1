@@ -47,7 +47,7 @@ binaries and the two ways to obtain the source. One flag is not obvious and is r
 ## Upstream
 
 **Nothing has been filed upstream.** Where `DISPOSITION-TABLE.md` says a filing is *prepared but
-not yet filed*, that is exact: drafts exist outside this repository and no issue or pull request
+not yet submitted*, that is exact: drafts exist outside this repository and no issue or pull request
 has been submitted. Issue numbers that do appear are **other people's** existing upstream
 discussions, cited as context.
 

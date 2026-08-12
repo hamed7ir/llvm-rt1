@@ -1,9 +1,9 @@
-# T10 — DISPOSITION TABLE (draft)
+# Disposition table
 
 Every defect, hazard and limitation found across the clang-cl/lld `thumbv7-windows-msvc` campaign,
 with **exactly one verdict each**. Built by walking `CLANG-CL-THUMBV7-BUGS.md` end to end (canonical
-copy `D:\repo\mozbuild\CLANG-CL-THUMBV7-BUGS.md`, 866 lines, read-only; working copy
-`D:\repo\llvm-rt\scratch\T10\CLANG-CL-THUMBV7-BUGS.md.copy`) and then adding everything the rt1
+copy in the Varan catalog's tree, `CLANG-CL-THUMBV7-BUGS.md`, 866 lines, read-only; working copy
+`CLANG-CL-THUMBV7-BUGS.md.copy` in this project's working tree) and then adding everything the rt1
 campaign found that the catalog does not carry.
 
 **Verdict vocabulary (one per row, no exceptions):**
@@ -41,7 +41,7 @@ They are off by one against each other. Every row below that concerns either one
 identifiers explicitly; never cite a bare "7" or "0007".
 
 **⚠ TWO PATCHES ARE BACKPORTS *FROM* UPSTREAM AND ARE NEVER SENT UPSTREAM.** Stated here as well
-as in an upstream filing prepared but **NOT YET FILED** §W5c, because a reader who counts *8 patches, 6 drafts* will
+as in the upstream filing — prepared but not yet submitted — because a reader who counts *8 patches, 6 drafts* will
 otherwise conclude two filings were forgotten. They were not — upstream is not owed them:
 
 | patch | what it is | upstream owes us nothing because |
@@ -49,24 +49,24 @@ otherwise conclude two filings were forgotten. They were not — upstream is not
 | **0006** | LLVM 21's `-Wpadded`/`-Wpadded-bitfield` wiring in `MicrosoftRecordLayoutBuilder`, structurally identical at the same call sites | it is **upstream's own fix**, already released in 21 |
 | **0008** | `e4882d83d77f` (2024-03-04), first shipped in **LLVM 19**, never backported to 18.x | it is **upstream's own fix**, already released in 19 |
 
-Every *other* patch in the series has an upstream track under working rule 12.
+Every *other* patch in the series has an upstream track under working rule 12 — a confirmed defect gets both an rt1 patch and an upstream draft, as additive tracks, never alternatives.
 
-**Evidence labels:** `[M-T10]` = MEASURED by this task, this session · `[R-T10]` = READ-IN-SOURCE by
-this task, this session · otherwise the banked report + section is named and the label it carries
-there is preserved.
+**Evidence labels:** `[measured]` = produced by running something here, this session ·
+`[read-in-source]` = read directly out of the named tree, this session · otherwise the banked
+report + section is named and the label it carries there is preserved.
 
 ---
 
-## State this table was built against (all `[M-T10]`)
+## State this table was built against (all `[measured]`)
 
 | fact | measurement |
 |---|---|
-| tree *(as of 2026-08-09; hash re-verified 2026-08-10)* | `D:\repo\llvm-rt\llvm-project` @ **`7653a13d8`**, **9 commits** ahead of `3b5b5c1ec`, `git status --porcelain` empty |
+| tree *(as of 2026-08-09; hash re-verified 2026-08-10)* | this project's working tree checkout of `llvm-project` @ **`7653a13d8`**, **9 commits** ahead of `3b5b5c1ec`, `git status --porcelain` empty |
 | commits | `7653a13d8` 0008 (was `bed948385` before a later amend) · `a20eeb750` 0007 · `345ce564e` 0006 · `3afb49879` 0003-fix · `386331553` 0005 · `17fd79072` 0004 · `a1f390894` 0003 · `e24a313bc` 0002 · `07030b2b1` 0001 · base `3b5b5c1ec` |
 | patches present | `patches/` = **0001–0008**. Series verified **cumulatively** against a fresh `3b5b5c1ec` worktree: **8/8 APPLIED**, 22 files, **+1,239/−32**, with a must-fail control (re-applying 0008 onto the patched tree fails) |
 | ⚠ binary vs tree | `build/bin/clang.exe` is at **`7653a13d8`** — it **CONTAINS** 0008 (rebuilt; MEASURED 2026-08-10, `--version` prints `…7653a13d8d28189c7cef1401b934ec30d98ea353)`). The STOP condition that held the rebuild is CLEARED |
 | upstream drafts present | `upstream/` = `ISSUE-bug5-backport.md`, `ISSUE-bug1-musttail-forwarded-regs.md`, `ISSUE-bug2-lld-thumb-bit.md`, `COMMENT-bug4-issue-64278.md`, `ISSUE-6-musttail-vararg-vastart.md`, `README-known-limitations.md`, `README-porting-struct-layout.md`, `README.md` |
-| compilers used | stock `C:\Program Files\LLVM\bin\clang.exe` = `clang version 18.1.8` · rt1 `D:\repo\llvm-rt\build\bin\clang.exe` = `Varan clang version 18.1.8-rt1 (…7653a13d8d28189c7cef1401b934ec30d98ea353)` (the table's measurements pre-dating the 2026-08-09 rebuild were taken at `345ce564ec…`, the 0006 tip — noted where they are cited) · `D:\repo\llvm-rt\clang21\pkg\bin\clang.exe` = `clang version 21.1.8` |
+| compilers used | the stock, unpatched reference install = `clang version 18.1.8` · rt1's build output = `Varan clang version 18.1.8-rt1 (…7653a13d8d28189c7cef1401b934ec30d98ea353)` (the table's measurements pre-dating the 2026-08-09 rebuild were taken at `345ce564ec…`, the 0006 tip — noted where they are cited) · the banked reference package = `clang version 21.1.8` |
 
 ---
 
@@ -110,7 +110,7 @@ rows below; see the Tally for the reconciliation.
 | **D14** — `__declspec(align(K))` below natural alignment | **DISCLOSE** | Points at **[#63257](https://github.com/llvm/llvm-project/issues/63257)** (i686, `align(N)` N≤4, CLOSED/completed 2023-06-13). MSVC is **itself self-inconsistent** here (`C4359` then honours it), so "match MSVC" is not obviously the right target. rt1 states the divergence and does not change behaviour |
 | **D38b** — self-inconsistent `sizeof`/`alignof`, 32-bit MS-ABI | **DISCLOSE** | On `i686` **clang matches MSVC exactly, including MSVC's own inconsistency** (both 8/20). Not a divergence. What is clang-specific is the array rejection, which is a *consequence* and disappears when D38a is fixed |
 | **D25** — PDB-publics census blind spot | **DISCLOSE** | Bounded at ~4 % per PE across 17 PDB-only PEs. The bound is the deliverable; no fix is owed |
-| **D38a** — ARM32 `sizeof` 20 vs MSVC 24 | **DISCLOSE** | **SETTLED 2026-08-09 (BATCH RT1-D38-1), `scratch/D38/E-VERDICT.md`. Real clang defect, but NO PATCH.** **Real:** MSVC 14.16 ARM gives 8/**24** where clang gives 8/**20** — third independent method (wrapper member offsets), agreeing with direct `sizeof` and array stride. **ARM32-only:** i686 and x86_64 AGREE with MSVC; **aarch64 was NOT measured against MSVC** (clang gives 8/24; no MSVC ARM64 arm was run), so unlike D14 this is not MS-ABI-wide. **Carrier count: ZERO across 2,582 TUs**, with the floor confirmed firing *through the sweep's own worker path* (the injected repro reports `V1`+`V2`) and a coverage denominator of 59/60 TUs producing dumps at ~431 records/TU — so the zero is an absence of carriers, not of compilation. **Structurally bounded:** an ARRAY of a carrier is a **loud compile error**, so the fleet cannot contain one; only non-array `sizeof` dependence was ever at risk, and with zero carriers that surface is empty. **A patch would be an INVENTION, not a port** — the over-aligned-base family ([#210461](https://github.com/llvm/llvm-project/issues/210461), `bd7bb26`) is a different mechanism, needs an `alignas` base D38's repro lacks, and is *"gated to Arm64 only"*. ⚠ **0010 is NOT opened; 0009 stays reserved for the D37 C-backport.** ✅ **LIMIT RETIRED 2026-08-09 by D38-COV.** rt1 carries 0008 — the fix for the very crash that blocked `-complete` — so the full sweep ran on rt1 and is impossible on stock. **Full declared-record coverage: 2,582/2,582 TUs, 7,018,478 records (2,718/TU vs pass-1's 431, 6.3×), zero non-zero exits, zero silent TUs, and ZERO D38a-class carriers.** The claim is now *no carrier exists among declared records in the corpus*, not merely among live ones. Varan-tree half handed off as **H-D38** |
+| **D38a** — ARM32 `sizeof` 20 vs MSVC 24 | **DISCLOSE** | **SETTLED 2026-08-09. `scratch/D38/E-VERDICT.md`. Real clang defect, but NO PATCH.** **Real:** MSVC 14.16 ARM gives 8/**24** where clang gives 8/**20** — third independent method (wrapper member offsets), agreeing with direct `sizeof` and array stride. **ARM32-only:** i686 and x86_64 AGREE with MSVC; **aarch64 was NOT measured against MSVC** (clang gives 8/24; no MSVC ARM64 arm was run), so unlike D14 this is not MS-ABI-wide. **Carrier count: ZERO across 2,582 TUs**, with the floor confirmed firing *through the sweep's own worker path* (the injected repro reports `V1`+`V2`) and a coverage denominator of 59/60 TUs producing dumps at ~431 records/TU — so the zero is an absence of carriers, not of compilation. **Structurally bounded:** an ARRAY of a carrier is a **loud compile error**, so the fleet cannot contain one; only non-array `sizeof` dependence was ever at risk, and with zero carriers that surface is empty. **A patch would be an INVENTION, not a port** — the over-aligned-base family ([#210461](https://github.com/llvm/llvm-project/issues/210461), `bd7bb26`) is a different mechanism, needs an `alignas` base D38's repro lacks, and is *"gated to Arm64 only"*. ⚠ **0010 is NOT opened; 0009 stays reserved for the D37 C-backport.** ✅ **LIMIT RETIRED 2026-08-09 by D38-COV.** rt1 carries 0008 — the fix for the very crash that blocked `-complete` — so the full sweep ran on rt1 and is impossible on stock. **Full declared-record coverage: 2,582/2,582 TUs, 7,018,478 records (2,718/TU vs pass-1's 431, 6.3×), zero non-zero exits, zero silent TUs, and ZERO D38a-class carriers.** The claim is now *no carrier exists among declared records in the corpus*, not merely among live ones. Varan-tree half handed off as **H-D38** |
 | **D22** — LAYOUT-FUZZ corpus gap | **DEFER-DOOR** | **Blocker CLEARED this session:** `vbank.py`'s member parser is repaired and armed (`--self-test`, must-fail demonstrated). MEASURED: the repair recovers **148 probes over 400 shapes, +46.7 %** — the old sweep was probing ~68 % of the members it claimed. Door: resume 400 → 12,000 |
 | **D15** — compiler-rt builtins | **DEFER-DOOR** | **Semantics half DECIDED this session** (`scratch/W3/D15-DIV0-DECISION.md`): divide-by-zero must trap, matching MSVC `__brkdiv0` (MEASURED in `libcmt.lib` `arm/divide.obj`). Gate `scratch/W3/div0_check.py` is armed both ways and **fails the prototype today**. Door for the remaining CMake half: the compiler-rt files named in `scratch/D2/…§1` |
 | **D32** — ARM LTO through `lld-link` | **DEFER-DOOR** | ⚠ **rt1's `lld` carries the codegen fixes (0001/0003/0004) and nobody has run them under LTO.** Door + oracle: `scratch/F4/peicheck2.py` over an `lld-link` **LTO** link of a known Bug-1/Bug-2 carrier |
@@ -129,10 +129,10 @@ armed both-directions transcript, and none is banked for either row yet.
 
 | row | evidence present | evidence NOT present |
 |---|---|---|
-| **D26** — `gate-thunks.py --expect-min` floor | `--expect-min 178 --class-floors B=44,4=73,R=0,adj=4217 --expect-pes 19 --max-review 844` present at both production call sites, `run-suite.sh` and `varan-fixup.sh` (byte-identical banked copies at `scratch/D26/banked-tooling/`, each at their gate-3/STANDING-GATES step), since **F0.2, 2026-08-04**; `gate-thunks.py`'s "`--expect-min` needs a separate value argument" hard-error check (banked at `scratch/D26/banked-tooling/gate-thunks.py`) turns the mistyped `--expect-min=178` spelling into a hard error | A run transcript showing the gate PASS at 178 and FAIL when raised above it. `gate-thunks.py`'s F0.2 (2026-08-04) arming comment, *"All four floors demonstrated firing"*, is a comment written by the change's own author, in the same file as the call — not a log, not dated against the code (`D:\repo\mozbuild` is not under version control) |
+| **D26** — `gate-thunks.py --expect-min` floor | `--expect-min 178 --class-floors B=44,4=73,R=0,adj=4217 --expect-pes 19 --max-review 844` present at both production call sites, `run-suite.sh` and `varan-fixup.sh` (byte-identical banked copies at `scratch/D26/banked-tooling/`, each at their gate-3/STANDING-GATES step), since **F0.2, 2026-08-04**; `gate-thunks.py`'s "`--expect-min` needs a separate value argument" hard-error check (banked at `scratch/D26/banked-tooling/gate-thunks.py`) turns the mistyped `--expect-min=178` spelling into a hard error | A run transcript showing the gate PASS at 178 and FAIL when raised above it. `gate-thunks.py`'s F0.2 (2026-08-04) arming comment, *"All four floors demonstrated firing"*, is a comment written by the change's own author, in the same file as the call — not a log, not dated against the code (the Varan tooling tree is not under version control) |
 | **D27** — `gate-thunks.py` class/population coverage | The four-family census engine (`varan-thunk-override/census/engine.py`, recursive `os.walk`) armed at both call sites with `--class-floors B=44,4=73,R=0,adj=4217`, since **H1, 2026-08-09** | Same gap: no banked run record of each class floor firing in both directions, only the callers' own comment asserting it |
 
-Handoff: **H-D26b** — run the floors at the census value (must PASS) and above it (must FAIL),
+Handoff to the Varan side: run the floors at the census value (must PASS) and above it (must FAIL),
 bank the transcript under `scratch/` and track it. Closes both rows on delivery.
 
 ### The 25 rows that are not open — listed so no row is omitted
@@ -150,7 +150,7 @@ honest. Out of this pass's scope to reword.
 **CLOSED (1):** D34 — see the master table row and `UPSTREAM-LEDGER.md`'s D34 row (grep `| D34 |`).
 
 8 + 12 + 1 + 1 + 2 + 1 = 25. Each carries the measurement that settles it in the table below. Per
-**working rule 12**, FIXED-BY-PATCH / NOT-A-BUG / OS-PLATFORM-HAZARD are the *only* verdicts that
+**working rule 12** — a confirmed defect gets both an rt1 patch and an upstream draft, as additive tracks, never alternatives — FIXED-BY-PATCH / NOT-A-BUG / OS-PLATFORM-HAZARD are the *only* verdicts that
 discharge a defect without an rt1 patch; DISCLOSE (D14, pre-existing), ARMED and CLOSED are
 process/disposition states, not verdicts drawn from the formal vocabulary.
 
@@ -215,15 +215,15 @@ compose; it was re-run cumulatively (8/8 APPLIED; footprint at the shipped tree 
 | D23 | **clang-cl driver argument spellings** — `-O0` silently dropped, `-g0` rejected as unknown | **NOT-A-BUG** | documented driver behaviour; production `/O1` is `cc1 -Os`. It cost two lanes, so it is recorded, not omitted |
 | D24 | **`d3dcompiler_47.dll` is blind to the thunk census** (no PDB, no map; 1 unadjudicable shape-B hit) | **NOT-A-BUG** | prebuilt MS redist built by **MSVC in 2017** — a clang allocator defect cannot be present by construction |
 | D25 | **PDB-publics blind spot** — internal-linkage anonymous-namespace adjustor thunks are not publics | **OPEN** | bounded at ~4 % per PE across the **17 PDB-only PEs**; unbounded only in the sense that it was never enumerated there |
-| D26 | **`gate-thunks.py --expect-min` floor was never armed** (gate-vacuity instance **#11**) | **ARMED — DEMONSTRATION OWED (H-D26b)** | MEASURED: `--expect-min 178 --class-floors B=44,4=73,R=0,adj=4217 --expect-pes 19 --max-review 844` is present at both production call sites, `varan-interwork/run-suite.sh` and `varan-thunk-override/varan-fixup.sh` (byte-identical banked copies at `scratch/D26/banked-tooling/run-suite.sh` / `varan-fixup.sh`, each at their "GATE 3/5"/"STANDING GATES" step), since **F0.2, 2026-08-04**. NOT measured: a run transcript demonstrating both directions (passes at 178, fails when raised above it) — a source comment asserting the demonstration is not the demonstration. See the D26 detail block and the D26 row in the D4 triage table (above, in "## D4 — THE TRIAGE") |
-| D27 | **`gate-thunks.py` covered one mangling in two binaries** — `$4`/`$R`/adjustor classes were invisible | **ARMED — DEMONSTRATION OWED (H-D26b)** | MEASURED: a vendored class-census engine (`varan-thunk-override/census/engine.py`) covering all four thunk families via a recursive population walk is present at both call sites with `--class-floors B=44,4=73,R=0,adj=4217` since **H1, 2026-08-09**. NOT measured: a run transcript demonstrating each class floor firing in both directions. See the D27 detail block and the D27 row in the D4 triage table (above, in "## D4 — THE TRIAGE") |
+| D26 | **`gate-thunks.py --expect-min` floor was never armed** (gate-vacuity instance **#11**) | **ARMED — DEMONSTRATION OWED** | MEASURED: `--expect-min 178 --class-floors B=44,4=73,R=0,adj=4217 --expect-pes 19 --max-review 844` is present at both production call sites, `varan-interwork/run-suite.sh` and `varan-thunk-override/varan-fixup.sh` (byte-identical banked copies at `scratch/D26/banked-tooling/run-suite.sh` / `varan-fixup.sh`, each at their "GATE 3/5"/"STANDING GATES" step), since **F0.2, 2026-08-04**. NOT measured: a run transcript demonstrating both directions (passes at 178, fails when raised above it) — a source comment asserting the demonstration is not the demonstration. See the D26 detail block and the D26 row in the D4 triage table (above, in "## D4 — THE TRIAGE") |
+| D27 | **`gate-thunks.py` covered one mangling in two binaries** — `$4`/`$R`/adjustor classes were invisible | **ARMED — DEMONSTRATION OWED** | MEASURED: a vendored class-census engine (`varan-thunk-override/census/engine.py`) covering all four thunk families via a recursive population walk is present at both call sites with `--class-floors B=44,4=73,R=0,adj=4217` since **H1, 2026-08-09**. NOT measured: a run transcript demonstrating each class floor firing in both directions. See the D27 detail block and the D27 row in the D4 triage table (above, in "## D4 — THE TRIAGE") |
 | D28 | **`split8.py` is an unsound Bug-5 oracle** — false positives on FIXED output **and** a measured false negative | **OPEN** | QUARANTINED rt1-side and replaced; the Varan-side banner (H2) is not installed |
 | D29 | **`checkfix.sh` cannot be redirected** — hardcodes `SP` to a dead session scratchpad | **OPEN** | it is the named Bug-5 acceptance instrument and cannot currently point at an rt1-built object |
 | D30 | **rt1 builds only the ARM and X86 backends** — `clang -print-targets` 6 vs stock 42 | **NOT-A-BUG** | deliberate build configuration, measured and documented; AArch64 fails to select a target under rt1 |
 | D31 | **Five auxiliary binaries are not rebuilt** — `clang-check`, `clang-repl`, `clang-scan-deps`, `clang-linker-wrapper`, `llvm-dwp` | **OPEN** | all five carry a full ARM backend (screen re-armed over the full 62-binary denominator), so they **can** reproduce the bugs rt1 fixes |
 | D32 | **The ARM LTO path through `lld-link` is untested** | **OPEN** | rt1's `lld` does carry 0001/0003/0004, but no oracle ever ran through the LTO code generator |
 | D33 | **The product target list cannot run lit** | **NOT-A-BUG** | measured build fact, documented with the exact 7 extra targets (+81 edges on this tree; the project record says +82) |
-| D34 | **`stage/bin/` completed to 9 of the 9 driver copies** the overlay needs (2026-08-10) | **CLOSED** | REFUTED as still-missing: MEASURED, `ls stage/bin` = 9 `.exe` (`ld.lld.exe`, `ld64.lld.exe`, `wasm-ld.exe` now present, mtime 2026-08-10 03:34); all nine carry `7653a13d8d28189c7cef1401b934ec30d98ea353` (`grep -ac` = 2 on each). `RT1-WORKLOG.md`'s "9/9 driver copies" bullet (§U5.3 — PKG-1 prep) records "9/9 driver copies staged". Closed by rt1's own packaging (PKG-1, WORKLIST T7) |
+| D34 | **`stage/bin/` completed to 9 of the 9 driver copies** the overlay needs (2026-08-10) | **CLOSED** | REFUTED as still-missing: MEASURED, `ls stage/bin` = 9 `.exe` (`ld.lld.exe`, `ld64.lld.exe`, `wasm-ld.exe` now present, mtime 2026-08-10 03:34); all nine carry `7653a13d8d28189c7cef1401b934ec30d98ea353` (`grep -ac` = 2 on each). The project's working log's "9/9 driver copies" bullet (PKG-1 prep) records "9/9 driver copies staged". Closed by rt1's own packaging (PKG-1, WORKLIST T7) |
 | D35 | **MinGW ARM32 (`thumbv7-windows-gnu`) is in the blast radius of 0001 and 0003 but is untested** | **OPEN** | `ARMCOFFMCAsmInfoGNU` also sets `ExceptionsType = WinEH`, so it takes the same `usesWindowsCFI()` path |
 | D36 | **No upstream filing has been made** (rule 12's second track) — 6 drafts exist, 0 filed | **OPEN** | filing is the USER's action (rule 11); the drafts are complete for Bugs 1/2/4/5 and #6 |
 | D37 | **`musttail` to a struct-returning function is a HARD ERROR on ARM32** — `sibcall` refused unconditionally when either side uses struct-return semantics | **OPEN** | NEW 2026-08-05, found while building 0007's V4 runtime check. `ARMISelLowering.cpp:3051-3052` @ `a20eeb750`: `if (isCalleeStructRet || isCallerStructRet) return false;` — **UNCONDITIONAL, no musttail exemption, PRE-DATES 0007 and untouched by it** (`git show --stat a20eeb750`). MEASURED **stock == rt1**: `sret`+**non**-variadic+no `va_start` fatals on both, so it is not about varargs at all. **Same family as defect #6, one guard over.** **UNPATCHED.** It made V4's required sret case **impossible by construction**, not merely untested — see A1 for whether the Bug-1 sret escalation survives it. Disposition: **candidate patch 0010, RECON REQUIRED — not auto-fix.** #6's guard was conservative-with-precondition-already-satisfied; **D37's may be protecting something genuinely unimplemented**, which is a different cost class. **Schedule AFTER the Varan round-trip; it blocks nothing.** |
@@ -265,20 +265,20 @@ therefore closes no row of its own.
 
 ### D01 — Bug 1, `$B` vcall thunk · FIXED-BY-PATCH-0003
 
-- Patch on disk: `D:\repo\llvm-rt\patches\0003-arm-forwarded-musttail-regs.patch`, 11,685 bytes `[M-T10]`.
-- Commits in the rt1 tree: `a1f390894 [ARM] Model the forwarded argument registers of a musttail vararg forwarder` and `3afb49879 [ARM] Fix two defects in the musttail forwarded-register patch found by review` `[M-T10]`.
+- Patch on disk: `D:\repo\llvm-rt\patches\0003-arm-forwarded-musttail-regs.patch`, 11,685 bytes `[measured]`.
+- Commits in the rt1 tree: `a1f390894 [ARM] Model the forwarded argument registers of a musttail vararg forwarder` and `3afb49879 [ARM] Fix two defects in the musttail forwarded-register patch found by review` `[measured]`.
 - Oracle (A/B vs unpatched 18.1.8), `RT-CLANG-FIX-1.md` §1:
   `unpatched: ldr r1,[r0] ; ldr r1,[r1,#0x4] ; bx r1` → `rt1: ldr.w r12,[r0] ; ldr.w r12,[r12,#0x4] ; bx r12`, byte-exact `f8d0 c000`.
   The must-fail control is the unpatched column and it fires.
 - Root cause (catalog `:124-169`, `RT-CLANG-RECON-1.md` §3): a missing forwarded-register liveness model, **not** a hardcoded register. The AArch64 mirror is `AArch64ISelLowering.cpp:6966-6974`.
 - Blunt fix (pin `TCRETURNri` to `r12`) is REFUTED three independent ways — do not re-propose it.
-- Upstream: **UNFIXED on `main`**. Draft ready at an upstream filing prepared but **NOT YET FILED** (31,580 bytes) `[M-T10]`. → see D36.
+- Upstream: **UNFIXED on `main`**. An upstream filing is prepared but not yet submitted `[measured]`. → see D36.
 - Consequence for Varan: the `varan-thunk-override` COMDAT override becomes unnecessary — but only after H4 proves it (that is D10's scope, not this row's).
 
 ### D02 — Bug 1 sub-class, `$4`/`$R`/adjustor · FIXED-BY-PATCH-0003
 
 - `RT-CLANG-FIX-1.md` §5: P8 was resolved with **no fifth patch**. Measured in IR, the `$4` thunk is emitted as a *variadic* function containing a `musttail` call, so `hasMustTailInVarArgFunc` fires and the scratch moves r1→r12. `$R` covered too (two temps landing in `{r12, r0}`).
-- Prediction converted to measurement: `musttail-varargs-forward-thisadjust.ll` **PASSES on rt1 and fails on the unpatched compiler** (`RT-CLANG-FIX-1.md` §2, 5/5 lit; `RT1-WORKLOG.md` T1, 6/6 lit).
+- Prediction converted to measurement: `musttail-varargs-forward-thisadjust.ll` **PASSES on rt1 and fails on the unpatched compiler** (`RT-CLANG-FIX-1.md` §2, 5/5 lit; the project's working log, 6/6 lit).
 - The carrier class is real and was **built**: `scratch/F05V/vctrlB.dll` 0x10001064 `?k@WD@@$4PPPPPPPM@A@AAHP8MP@@AAHXZHHH@Z` emits `ldr r1,[r0,#-4]` under an ordinary mangled name; its prototyped twin at 0x10001082 emits `ldr r12,[r0,#-4]` from the same run.
 - Fleet position: FLEET-CENSUS — RELEASE build 4,334 thunks / 19 our-built ARMNT PEs / **0 carriers**.
 
@@ -320,8 +320,8 @@ therefore closes no row of its own.
 >    (`scratch/CENSUS/census3.py`'s `thunks = {va: ns for va, ns in byva.items() ...}` filter line
 >    keeps only dbghelp `[thunk]:` symbols).
 >
-> **Owed elsewhere (NOT applied from here):** the Varan catalog
-> `D:\repo\mozbuild\CLANG-CL-THUMBV7-BUGS.md:193-194` states as INFERRED *"the allocator would not
+> **Owed elsewhere (NOT applied from here):** the Varan catalog, `CLANG-CL-THUMBV7-BUGS.md:193-194`
+> in its own tree, states as INFERRED *"the allocator would not
 > have taken r1/r3 as scratch had it modelled r0-r3 as forwarded"* — **REFUTED**. It is a
 > HANDOFF-TO-VARAN item; the catalog is read-only from here.
 
@@ -331,8 +331,8 @@ therefore closes no row of its own.
 
 ### D04 — Bug 2, lld local `__imp_` Thumb bit · FIXED-BY-PATCH-0002
 
-- Patch: `patches/0002-lld-coff-localimport-thumb-bit.patch`, 4,607 bytes; commit `e24a313bc` `[M-T10]`.
-- `[R-T10]` the landed code, `D:\repo\llvm-rt\llvm-project\lld\COFF\Chunks.cpp:867-880` at `345ce564e`:
+- Patch: `patches/0002-lld-coff-localimport-thumb-bit.patch`, 4,607 bytes; commit `e24a313bc` `[measured]`.
+- `[read-in-source]` the landed code, `Chunks.cpp:867-880` (lld's COFF linker, in this project's `llvm-project` checkout) at `345ce564e`:
   ```cpp
   void LocalImportChunk::writeTo(uint8_t *buf) const {
     if (ctx.config.is64()) {
@@ -351,13 +351,13 @@ therefore closes no row of its own.
   ```
 - Oracle, `RT-CLANG-FIX-1.md` §1: one link containing both a `dllimport` function and a `dllimport` variable — function slot `0x00401000` → `0x00401001` (odd, fixed); **variable slot `0x00403000` unchanged in both**. The unchanged data slot is the absent-control: an unconditional ARMNT OR would have corrupted it.
 - The standing Varan gate with the post-link fixer never run: `OLD: GATE FAIL … slot RVA 0x2004 -> 0x00401000` → `RT: GATE PASS`.
-- Upstream: **UNFIXED on `main`** (`LocalImportChunk::writeTo` byte-identical 18.1.8 / 21.x / main). Draft an upstream filing prepared but **NOT YET FILED**. Precedent lines corrected for this tree: `lld/COFF/DLL.cpp:543/:614/:615`. → D36.
+- Upstream: **UNFIXED on `main`** (`LocalImportChunk::writeTo` byte-identical 18.1.8 / 21.x / main). An upstream filing is prepared but not yet submitted. Precedent lines corrected for this tree: `lld/COFF/DLL.cpp:543/:614/:615`. → D36.
 
 ### D05 — Bug 3, MS bitfield straddling · NOT-A-BUG (for the compiler)
 
 **The measurement that settles it (two independent ones):**
 
-1. Hand-shape A/B vs the project's own reference compiler `D:\Program Files\Vscom\VC\Tools\MSVC\14.16.27023\bin\Hostx64\arm\cl.exe` = **cl 19.16.27054 for ARM**, using `/d1reportSingleClassLayout` on both sides so the comparison is field-for-field. Dumps **byte-identical**:
+1. Hand-shape A/B vs the project's own reference compiler — MSVC 14.16.27023's ARM `cl.exe`, reporting itself as **cl 19.16.27054 for ARM** — using `/d1reportSingleClassLayout` on both sides so the comparison is field-for-field. Dumps **byte-identical**:
 
    | shape | MSVC ARM | clang-cl thumbv7 | Itanium (armv7-linux) |
    |---|---|---|---|
@@ -366,9 +366,9 @@ therefore closes no row of its own.
    | `{enum:2, u32:5, bool:1, bool:1}` (`VFPRegister` pre-fix) | **8** | **8** | 4 |
    | `{u16:5, u32:5}` — no `bool` anywhere | **8** | **8** | 4 |
 
-2. **LAYOUT-FUZZ at scale** (`RT1-WORKLOG.md` T2): **12,000 generated shapes · 25,536 records compared · 0 compile failures · 0 parse failures · 0 skipped · ZERO divergences on the bitfield axis**, including 3,149 shapes composed exclusively of mixed-underlying-size bitfield runs. Armed floor: pointing the clang side at Itanium makes the same generator and driver report **2,058 divergences** over the same records — so the sweep is provably non-vacuous.
+2. **LAYOUT-FUZZ at scale** (the project's working log): **12,000 generated shapes · 25,536 records compared · 0 compile failures · 0 parse failures · 0 skipped · ZERO divergences on the bitfield axis**, including 3,149 shapes composed exclusively of mixed-underlying-size bitfield runs. Armed floor: pointing the clang side at Itanium makes the same generator and driver report **2,058 divergences** over the same records — so the sweep is provably non-vacuous.
 
-- Governing rule `[R-T10]`, `D:\repo\llvm-rt\llvm-project\clang\lib\AST\RecordLayoutBuilder.cpp:3040-3044` at `345ce564e` (line drifted from `:3028` pre-0006):
+- Governing rule `[read-in-source]`, `RecordLayoutBuilder.cpp:3040-3044` (clang's AST library, in this project's `llvm-project` checkout) at `345ce564e` (line drifted from `:3028` pre-0006):
   ```
   // Check to see if this bitfield fits into an existing allocation.  Note:
   // MSVC refuses to pack bitfields of formal types with different sizes
@@ -377,9 +377,9 @@ therefore closes no row of its own.
       CurrentBitfieldSize == Info.Size && Width <= RemainingBitsInField) {
   ```
   A pure **size** comparison — not signedness, not `bool`, not type identity.
-**SCOPE — the rule is MS-ABI-wide, not an ARM32 defect and not UXP-specific `[M-T10]`.**
+**SCOPE — the rule is MS-ABI-wide, not an ARM32 defect and not UXP-specific `[measured]`.**
 
-Probe `D:\repo\llvm-rt\scratch\T10\t10probe.cpp`, **stock unpatched clang 18.1.8**, `-fsyntax-only`,
+Probe `t10probe.cpp` (this project's working tree, outside the shipped `scratch/`), **stock unpatched clang 18.1.8**, `-fsyntax-only`,
 sizes read out of an incomplete-template-argument error (`S<N>`) so **no layout dump is involved**:
 
 ```cpp
@@ -443,18 +443,18 @@ RT, which is why it belongs in the release README despite being NOT-A-BUG.
 ### D06 — `VFPRegister` has no `sizeof` assert · **OPEN**
 
 - **WHY OPEN:** measured asymmetry — `PoolHeader` **is** asserted (`Assembler-arm.cpp:5256`/`:5262`); scanning `js/src/jit` for `sizeof(VFPRegister)` / `sizeof(FloatRegister)` returns **zero hits**, while the same scan shape finds the `PoolHeader` assertions immediately. That asymmetry is exactly why one victim was silent and the other was not.
-- Owner: **Varan side**, `HANDOFF-TO-VARAN.md` **H3**. Not actionable from `D:\repo\llvm-rt` (rule: boundary).
+- Owner: **Varan side**, `HANDOFF-TO-VARAN.md` **H3**. Not actionable from this project's working tree (rule: boundary).
 - **WHAT WOULD CLOSE IT:** H3 lands — `static_assert(sizeof(js::jit::VFPRegister) == 4, …)` plus the sweep for other fixed-at-source structs lacking one — with H3's own acceptance met (a deliberately wrong assert value must fail the build, proving the asserts are live). `js::jit::Operand` stays untouched by explicit decision (see D20).
 
 ### D07 — Bug 4, CodeView tuple-register ICE · FIXED-BY-PATCH-0004
 
-- Patch: `patches/0004-mc-codeview-fallible-regnum.patch`, 13,079 bytes; commit `17fd79072` `[M-T10]`.
-- `[R-T10]` the landed API, `D:\repo\llvm-rt\llvm-project` at `345ce564e`:
+- Patch: `patches/0004-mc-codeview-fallible-regnum.patch`, 13,079 bytes; commit `17fd79072` `[measured]`.
+- `[read-in-source]` the landed API, in this project's `llvm-project` checkout at `345ce564e`:
   `llvm/include/llvm/MC/MCRegisterInfo.h:444` `int getCodeViewRegNum(MCRegister RegNum) const;` and `:458` `std::optional<int> getCodeViewRegNumOrNone(MCRegister RegNum) const;`; `llvm/lib/MC/MCRegisterInfo.cpp:125` defines the fallible variant, `:138-139` re-implements the infallible one on top of it.
 - Oracle, `RT-CLANG-FIX-1.md` §1: banked 5-line NEON repro at `-Zi -O1` — `unpatched: fatal error: error in backend: unknown codeview register D1_D2` (no object) → `rt1: exit 0, no ICE, 4,356-byte object`.
 - lit: `DebugInfo/COFF/ARMNT/codeview-d-pair-register.mir` PASS.
 - Two catalog attributions corrected and carried: the fatal is in the **MC layer** (18.1.8 `MCRegisterInfo.cpp:129` via `CodeViewDebug.cpp:1407`; `main` `:206` via `:1408`), and *"LLVM forgot to add table rows"* is wrong — **CodeView has no D-pair register**, so a graceful skip is the only truthful output. The trigger is **any tuple-register `DBG_VALUE`**, not NEON specifically.
-- Upstream: **UNFIXED on `main`**. Draft is a **comment on the existing issue #64278**: an upstream filing prepared but **NOT YET FILED** (28,990 bytes) `[M-T10]`. → D36.
+- Upstream: **UNFIXED on `main`**. Draft is a **comment on the existing issue #64278**; an upstream filing is prepared but not yet submitted `[measured]`. → D36.
 
 ### D08 — Bug 4's `-Od` vs `-O0` lane conflict · NOT-A-BUG
 
@@ -464,8 +464,8 @@ RT, which is why it belongs in the release README despite being NOT-A-BUG.
 
 ### D09 — Bug 5, prologue over-allocation · FIXED-BY-PATCH-0001
 
-- Patch: `patches/0001-arm-frame-lowering-splitpush.patch`, 9,888 bytes; commit `07030b2b1` `[M-T10]`.
-- `[R-T10]` the landed fix, `D:\repo\llvm-rt\llvm-project\llvm\lib\Target\ARM\ARMFrameLowering.cpp:963-972` at `345ce564e`:
+- Patch: `patches/0001-arm-frame-lowering-splitpush.patch`, 9,888 bytes; commit `07030b2b1` `[measured]`.
+- `[read-in-source]` the landed fix, `ARMFrameLowering.cpp:963-972` (ARM backend, in this project's `llvm-project` checkout) at `345ce564e`:
   ```cpp
   } else if (STI.splitFramePointerPush(MF)) {
     // With a split frame pointer push, spill area 2 (the {r11,lr} pair) is
@@ -476,17 +476,17 @@ RT, which is why it belongs in the release README despite being NOT-A-BUG.
   ```
 - Oracle 1 (`RT-CLANG-FIX-1.md` §1), pre-fix `nsRuleNode.cpp` unified TU, production flags, post-PEI MIR, per-frame-index error:
   `unpatched {('r6',-8): 33, ('r11',0): 2}` → `rt1 {('r6',0): 33, ('r11',0): 2}`. The two FP-resolved references were and remain exact — a built-in control inside the histogram.
-- Oracle 2 (`RT1-WORKLOG.md` T3), the sound MIR predicate `scratch/T3/bug5_pred.py` with **five armed controls, one variable each**; whole-module rt1-vs-stock over the 29 MB `.ll`: the two MIR dumps differ in **exactly 8 lines / 4 instructions**, every one a `tSUBspi` prologue allocation smaller by exactly 2 words:
+- Oracle 2 (the project's working log), the sound MIR predicate `scratch/T3/bug5_pred.py` with **five armed controls, one variable each**; whole-module rt1-vs-stock over the 29 MB `.ll`: the two MIR dumps differ in **exactly 8 lines / 4 instructions**, every one a `tSUBspi` prologue allocation smaller by exactly 2 words:
   `WalkRuleTree 51→49 · SetGenericFont 85→83 · HasAuthorSpecifiedRules 91→89 · ComputePropertiesOverridingAnimation 65→63`. **Carrier count 5 → 0.**
 - lit: `wineh-framepointer.ll` PASS with corrected immediates **1254/1256/1257** — upstream's own test had the bug baked into its expected output.
 - IR reduction DONE: 29,272,948 B → **1,492 B / 43 lines** (19,620×), verified in both directions, attached to the upstream draft.
-- **Upstream status (the one defect fixed upstream — and only on `main`):** `release/18.x` BUGGY · `19.x` BUGGY · `20.x` STILL BUGGY · `21.x` STILL BUGGY · `main` **FIXED** by `6c34ed7b3` "[ARM] Add support for Windows SEH (#184953)", 2026-05-18 — a **feature** PR with no bug label and no issue reference, i.e. fixed incidentally and never backported. **No shipping clang has it fixed.** Draft = a backport request, an upstream filing prepared but **NOT YET FILED**. → D36.
+- **Upstream status (the one defect fixed upstream — and only on `main`):** `release/18.x` BUGGY · `19.x` BUGGY · `20.x` STILL BUGGY · `21.x` STILL BUGGY · `main` **FIXED** by `6c34ed7b3` "[ARM] Add support for Windows SEH (#184953)", 2026-05-18 — a **feature** PR with no bug label and no issue reference, i.e. fixed incidentally and never backported. **No shipping clang has it fixed.** Draft = a backport request; an upstream filing is prepared but not yet submitted. → D36.
 
 ### D10 — Bug 5's Varan-side source mitigations · **OPEN**
 
 - **WHY OPEN:** they are still in the Varan tree and 0001 has not yet been proven on it. Two of them carry different maintenance obligations and one is explicitly *not* root-cause removal:
   - `AutoCSSValueArray`/`AutoTArray<nsCSSValue,64>` at 4 `nsRuleNode.cpp` sites + `nsDebugImpl::Break` = **genuine root-cause removal** (deleting the dynamic alloca kills both `splitFramePointerPush` and `hasBasePointer`).
-  - libffi `ffi_call_int` `optnone` = **layout luck, NOT trigger removal** — `[R-T10]`-consistent with `llvm/lib/CodeGen/TargetPassConfig.cpp:1098-1104`, where `LocalStackSlotAllocation` runs *because* the opt level is None. A libffi bump can put a victim back in the 168–255-byte FP window with `optnone` still faithfully applied.
+  - libffi `ffi_call_int` `optnone` = **layout luck, NOT trigger removal** — `[read-in-source]`-consistent with `llvm/lib/CodeGen/TargetPassConfig.cpp:1098-1104`, where `LocalStackSlotAllocation` runs *because* the opt level is None. A libffi bump can put a victim back in the 168–255-byte FP window with `optnone` still faithfully applied.
   - source-vigilance grep + `-Wvla-extension` pass (a runtime-sized `T x[n]` is not grep-detectable).
 - **WHAT WOULD CLOSE IT:** `HANDOFF-TO-VARAN.md` **H4** (relink on rt1 with every source workaround still in place — one variable at a time) then **H7 item 1** (remove the `optnone` lever and **re-verify the frame layout**, not merely that the attribute is present). Results land in `RT-CLANG-ACCEPT-1-RESULTS.md`.
 
@@ -498,24 +498,24 @@ RT, which is why it belongs in the release README despite being NOT-A-BUG.
 > Everything below is the state of the row as it stood before that result, kept for the audit
 > trail (same convention as D03's block above).
 
-- `[R-T10]` the fatal, `D:\repo\llvm-rt\llvm-project\llvm\lib\Target\ARM\ARMISelLowering.cpp:2423-2425` at `345ce564e`:
+- `[read-in-source]` the fatal, `ARMISelLowering.cpp:2423-2425` (ARM backend, in this project's `llvm-project` checkout) at `345ce564e`:
   ```cpp
   if (!isTailCall && CLI.CB && CLI.CB->isMustTailCall())
     report_fatal_error("failed to perform tail call elimination on a call "
                        "site marked musttail");
   ```
   (Catalog says `:2424`; that is the `report_fatal_error` line itself. `main` = `:2098`.) Note this is the **generic** musttail-failure guard, not a `va_start`-specific one — the defect is whatever clears `isTailCall`.
-- **WHY OPEN:** the disposition **CHANGED on 2026-08-05** under working rule 12. It was "file upstream, do not implement" (no consumer could validate a fix); it is now **rt1 patch 0007 AND the filing**. `[M-T10]`: `patches/` contains 0001–0006 only — **0007 does not exist**. Recon is in flight as RT1-CONTINUE-2 **T8**; probe inputs are banked at `scratch/T4-6/` (`fwd.ll`, `fwd2.ll`, `fwd3named.ll`, `fwd4named.ll`, `fwd_nomusttail.ll`, `fwd_novastart.ll`, `c6.c`) `[M-T10]`.
+- **WHY OPEN:** the disposition **CHANGED on 2026-08-05** under working rule 12 — a confirmed defect gets both an rt1 patch and an upstream draft, as additive tracks, never alternatives. It was "file upstream, do not implement" (no consumer could validate a fix); it is now **rt1 patch 0007 AND the filing**. `[measured]`: `patches/` contains 0001–0006 only — **0007 does not exist**. Recon was in flight under an internal tracking tag **T8**, in a report that does not ship; probe inputs are banked at `scratch/T4-6/` (`fwd.ll`, `fwd2.ll`, `fwd3named.ll`, `fwd4named.ll`, `fwd_nomusttail.ll`, `fwd_novastart.ll`, `c6.c`) `[measured]`.
 - Not hit in the Varan tree: the Bug-1 vPMF thunks are variadic `musttail` forwarders **without** `llvm.va_start` (control: the same grep fires twice on a TU that really calls it), so they took the wrong-code path instead.
-- Upstream: **UNFIXED on `main`**; AArch64 compiles the identical IR — the built-in control. Draft ready: an upstream filing prepared but **NOT YET FILED** (19,188 bytes) `[M-T10]`. → D36.
-- Also documented as a README known limitation (an upstream filing prepared but **NOT YET FILED** §3), including that under LTO the fatal moves from compile time to **link** time and that `clang-cl -flto -c` still rejects the source spelling in the front end (`error: 'musttail' attribute may not be used with variadic functions`) — the exposure stays IR-level.
+- Upstream: **UNFIXED on `main`**; AArch64 compiles the identical IR — the built-in control. An upstream filing is prepared but not yet submitted `[measured]`. → D36.
+- Also documented as a README known limitation — itself an upstream filing prepared but not yet submitted — including that under LTO the fatal moves from compile time to **link** time and that `clang-cl -flto -c` still rejects the source spelling in the front end (`error: 'musttail' attribute may not be used with variadic functions`) — the exposure stays IR-level.
 - **WHAT WOULD CLOSE IT:** T8 lands 0007 with an A/B oracle (must-fail control = stock 18.1.8 still fatal) + a lit test, and the filing is made.
 
 ### D12 — #7, `-Wpadded` dead under MS layout · FIXED-BY-PATCH-0006
 
-- Patch: `patches/0006-clang-ms-layout-padding-diagnostics.patch`, 12,214 bytes; commit `345ce564e` `[M-T10]`.
-- `[R-T10]` the wiring, `clang/lib/AST/RecordLayoutBuilder.cpp` at `345ce564e`: free function `:2280`, Itanium forwarder `:2324/:2327`, and the three Microsoft-builder call sites at **`:3016`, `:3072`, `:3103`** — structurally identical to LLVM 21 (`upstream-check/RLB.release_21.x.cpp` `:3012/:3068/:3099`).
-- Oracles (`RT1-WORKLOG.md` T1):
+- Patch: `patches/0006-clang-ms-layout-padding-diagnostics.patch`, 12,214 bytes; commit `345ce564e` `[measured]`.
+- `[read-in-source]` the wiring, `clang/lib/AST/RecordLayoutBuilder.cpp` at `345ce564e`: free function `:2280`, Itanium forwarder `:2324/:2327`, and the three Microsoft-builder call sites at **`:3016`, `:3072`, `:3103`** — structurally identical to LLVM 21 (`upstream-check/RLB.release_21.x.cpp` `:3012/:3068/:3099`).
+- Oracles (the project's working log):
   - diagnostic fires: stock 18.1.8 **0** → rt1+0006 **7**, matching the clang-21 preview target;
   - **corpus, finding-for-finding**: baseline stock clang 21 = **1355 hits / 2582 TUs / 80 distinct sites**; rt1+0006 = **1355 / 2582 / 80**; **differing lines 0**; compiled 2582/2582 on both sides. Controls: piloted on a TU clang-21 is known to flag (`icu_78::Calendar`) with byte-identical hits, and dropping one baseline line makes the comparison report exactly 1 difference — so it can detect one;
   - **hard constraint held**: default builds byte-identical (identical SHA, 765 B) while the same pair differs 0 vs 7 with the flags on;
@@ -531,9 +531,9 @@ RT, which is why it belongs in the release README despite being NOT-A-BUG.
 > and re-run — the STOP condition that had held the rebuild is CLEARED. Everything below is the
 > state of the row as it stood before the patch landed, kept for the audit trail.
 
-**`[M-T10]` — measured this session, with the flag-absent control and the clang-21 control:**
+**`[measured]` — measured this session, with the flag-absent control and the clang-21 control:**
 
-Repro, one line (`D:\repo\llvm-rt\scratch\T10\a4.cpp`):
+Repro, one line (`a4.cpp`, this project's working tree, outside the shipped `scratch/`):
 ```cpp
 template <class T> struct Tpl { T a; int b; };
 ```
@@ -541,20 +541,20 @@ Command: `<clang> -cc1 -triple thumbv7-unknown-windows-msvc -fdump-record-layout
 
 | compiler | with the flag | without the flag |
 |---|---|---|
-| `clang version 18.1.8` (stock, `C:\Program Files\LLVM`) | **rc=139, Segmentation fault** | rc=0 |
+| `clang version 18.1.8` (the stock, unpatched reference install) | **rc=139, Segmentation fault** | rc=0 |
 | `Varan clang version 18.1.8-rt1 (…345ce564e…)` | **rc=139, Segmentation fault** | rc=0 |
 | `clang version 21.1.8` (`clang21\pkg`) | rc=0 | — |
 
-Bisect `[M-T10]`: `struct Plain { int x; char c; };` → rc=0 · `struct Fwd; struct Holder { Fwd *p; int q; };` → rc=0 · a **class template** (instantiated or not) → rc=139. The trigger is the class template.
+Bisect `[measured]`: `struct Plain { int x; char c; };` → rc=0 · `struct Fwd; struct Holder { Fwd *p; int q; };` → rc=0 · a **class template** (instantiated or not) → rc=139. The trigger is the class template.
 
-- Independently reproduces `RT1-WORKLOG.md` T1's three-way attribution (stock clang 21 clean; rt1 pre-0006 `3afb49879` crash; rt1 +0006 `345ce564e` crash — **identical**), i.e. the crash is **pre-existing in the 18.1.8 base** and patch 0006 neither causes nor changes it.
+- Independently reproduces the project's working log's three-way attribution (stock clang 21 clean; rt1 pre-0006 `3afb49879` crash; rt1 +0006 `345ce564e` crash — **identical**), i.e. the crash is **pre-existing in the 18.1.8 base** and patch 0006 neither causes nor changes it.
 - Consequence already paid: LAYOUT-AUDIT pass 2 (forced layout of every record) is **not a runnable oracle on any 18-based compiler** — 177 of 185 selected TUs crashed. Pass 1 (2,582 TUs) stands as the oracle; pass 2 is BLOCKED with its cause named.
-- **WHY OPEN:** recon is in flight as **T9a** (`scratch\T9a\` exists and is empty as of this session `[M-T10]`). The crash site has not been named in any banked report, no upstream ledger entry exists for it, and no verdict has been recorded — so under this table's own rule it is OPEN, not "low value".
+- **WHY OPEN:** recon is in flight as **T9a** (`scratch\T9a\` exists and is empty as of this session `[measured]`). The crash site has not been named in any banked report, no upstream ledger entry exists for it, and no verdict has been recorded — so under this table's own rule it is OPEN, not "low value".
 - **WHAT WOULD CLOSE IT:** T9a names the crash site in the 18.1.8 tree, identifies the upstream commit that fixed it before 21 (the banked `upstream-check/RLB.release_21.x.cpp` may not be the right file — no network is available, so if the fix is elsewhere, say so rather than invent it), and returns a disposition: rt1 patch 0007-series + filing per rule 12, or NOT-A-BUG-for-rt1 with the measurement that settles it (e.g. flag is `-cc1`-only and unreachable from any production driver line — that argument is **not** yet made anywhere).
 
 ### D14 — `__declspec(align(K))` below natural alignment inside `#pragma pack(P)` · **OPEN**
 
-- Minimised divergence (`RT1-WORKLOG.md` T2):
+- Minimised divergence (the project's working log):
   ```cpp
   #pragma pack(4)
   struct __declspec(align(2)) LowAlign { double d; };
@@ -564,7 +564,7 @@ Bisect `[M-T10]`: `struct Plain { int x; char c; };` → rc=0 · `struct Fwd; st
 - **Not an rt1 regression:** stock 18.1.8, stock 21.1.8 and rt1 emit a **byte-identical value vector**. Upstream clang behaviour.
 - MSVC is internally inconsistent: it emits **C4359** saying the specifier "will be ignored", then its measured `alignof` **is** that specifier's value. "Match MSVC" is therefore not automatically the right target.
 - **WHY OPEN:** the T2 STOP condition fired here and was honored literally — triage was forbidden, so none was done. `LAYOUT-FUZZ.md` was deliberately **not** written because its stated precondition (zero divergences) is not met.
-- **WHAT WOULD CLOSE IT:** `HANDOFF-TO-VARAN.md` **H-ALIGN** — a Varan-side count with a shipping/non-shipping split, searched with a demonstrably armed regex (a planted case is acceptable; a bare "none found" is refused as gate-vacuity in grep form). The decision table is pre-agreed: **0 instances or non-shipping only** → rt1 documents it, an upstream filing prepared but **NOT YET FILED** §1 loses its `TBD-pending-Varan-grep` tag, **no patch**; **≥1 shipping instance** → open a real recon for a candidate 0007 with that instance as the validation consumer. Rationale for the high bar: a 0007 here changes record layout for *every* TU putting an align-carrying type inside a pack region — far wider than 0001–0006, all of which are narrow.
+- **WHAT WOULD CLOSE IT:** `HANDOFF-TO-VARAN.md` **H-ALIGN** — a Varan-side count with a shipping/non-shipping split, searched with a demonstrably armed regex (a planted case is acceptable; a bare "none found" is refused as gate-vacuity in grep form). The decision table is pre-agreed: **0 instances or non-shipping only** → rt1 documents it — the upstream filing, prepared but not yet submitted, loses its `TBD-pending-Varan-grep` tag — **no patch**; **≥1 shipping instance** → open a real recon for a candidate 0007 with that instance as the validation consumer. Rationale for the high bar: a 0007 here changes record layout for *every* TU putting an align-carrying type inside a pack region — far wider than 0001–0006, all of which are narrow.
 
 ### D15 — compiler-rt builtins gap / `__aeabi_{u,}idivmod` · **OPEN**
 
@@ -618,7 +618,7 @@ Bisect `[M-T10]`: `struct Plain { int x; char c; };` → rc=0 · `struct Fwd; st
 
 ### D22 — LAYOUT-FUZZ corpus gap · **OPEN**
 
-- Named gap, `RT1-WORKLOG.md` T2: the 12,000-shape corpus has **no inheritance, no virtual functions and no vtables — the MS ABI is at its most distinctive exactly there.** Second named gap: divergence count is generator-weight dependent (860 of 12,000 shapes carried the align trigger combination).
+- Named gap, in the project's working log: the 12,000-shape corpus has **no inheritance, no virtual functions and no vtables — the MS ABI is at its most distinctive exactly there.** Second named gap: divergence count is generator-weight dependent (860 of 12,000 shapes carried the align trigger combination).
 - **WHY OPEN:** D05's verdict is fully supported *on the bitfield axis*, which is what the experiment was built to settle. It is not evidence about vbases/vtordisp/vtable-pointer placement, and no other measurement in this campaign covers them.
 - **WHAT WOULD CLOSE IT:** extend the generator with single/multiple/virtual inheritance and virtual functions, re-run the same rt1-clang-cl vs MSVC-14.16-ARM field-for-field comparison with the same armed driver floor (Itanium target → non-zero divergences), and report. Any divergence there is a new confirmed defect and a patch candidate under the same STOP rule.
 
@@ -640,7 +640,7 @@ Bisect `[M-T10]`: `struct Plain { int x; char c; };` → rc=0 · `struct Fwd; st
 - **WHY OPEN:** each of the **17 PDB-only PEs** carries a blind spot of the same kind, bounded at roughly 4 % of its thunk population — *bounded by inference from two PEs, not enumerated on the other 17*. `xul.dll` + `libGLESv2.dll` hold 4,286 of the fleet's 4,334 thunks and are covered map ∪ PDB with 0 gap, which is why the residual is small — but it is not zero and it has no verdict.
 - **WHAT WOULD CLOSE IT:** the `FLEET-CENSUS.md` §9 gate extension (PE-driven recursive population + dbghelp `[thunk]:` classification) applied to the 17, or a map emitted for them. Varan-side (**H1**).
 
-### D26 — `gate-thunks.py --expect-min` floor · **ARMED — DEMONSTRATION OWED (H-D26b)**
+### D26 — `gate-thunks.py --expect-min` floor · **ARMED — DEMONSTRATION OWED**
 
 > **2026-08-10: NOT CLOSED.** A prior pass here wrote "CLOSED by F0.2" on the strength of a
 > comment inside `gate-thunks.py` asserting the demonstration, not a record of it. This row's own
@@ -648,22 +648,22 @@ Bisect `[M-T10]`: `struct Plain { int x; char c; };` → rc=0 · `struct Fwd; st
 > has never been shown to fire is not armed." A comment is not a transcript. Downgraded to ARMED.
 
 - Gate-vacuity instance **#11**, **true only before 2026-08-04**: at that time grep found exactly two hits for `--expect-min`, both inside the script itself; no caller passed it, so the effective floor was **1** and a thunk count that collapsed to nothing would still print PASS.
-- **RE-MEASURED 2026-08-10** in `D:\repo\mozbuild` (the canonical tooling home the catalog names; the older copy at `D:\repo\Varan-source\tooling\gate-thunks.py` lacks `--expect-min` entirely — `grep -c` returns 0 — and is not authority here; byte-identical banked copies live at `scratch/D26/banked-tooling/`, see its `PROVENANCE.md`): both production callers now pass the floor. `varan-interwork/run-suite.sh` and `varan-thunk-override/varan-fixup.sh` each call `python3 "$GT/gate-thunks.py" "$OBJ" --expect-min 178 --class-floors B=44,4=73,R=0,adj=4217 --expect-pes 19 --max-review 844`. `gate-thunks.py`'s F0.2 arming comment **asserts** inline: *"F0.2 (2026-08-04): the floor is now ARMED by both production callers ... Until today NO caller passed it, so the effective floor was 1 and a count collapsing 178 -> 1 still printed GATE PASS (gate-vacuity instance #11)."* This is a comment written by the change's own author, in the same file as the call — not a log, not a transcript, and not dated against the code (`D:\repo\mozbuild` is not under version control, so it cannot even be dated). `gate-thunks.py`'s "`--expect-min` needs a separate value argument" check also turns the mistyped `--expect-min=178` spelling (previously silently ignored, floor stuck at 1) into a **hard error** — that part IS a static, re-checkable fact, not a demonstration claim.
+- **RE-MEASURED 2026-08-10** in the Varan tooling tree (the canonical tooling home the catalog names; the older copy of `gate-thunks.py`, in the Varan-source tooling tree, lacks `--expect-min` entirely — `grep -c` returns 0 — and is not authority here; byte-identical banked copies live at `scratch/D26/banked-tooling/`, see its `PROVENANCE.md`): both production callers now pass the floor. `varan-interwork/run-suite.sh` and `varan-thunk-override/varan-fixup.sh` each call `python3 "$GT/gate-thunks.py" "$OBJ" --expect-min 178 --class-floors B=44,4=73,R=0,adj=4217 --expect-pes 19 --max-review 844`. `gate-thunks.py`'s F0.2 arming comment **asserts** inline: *"F0.2 (2026-08-04): the floor is now ARMED by both production callers ... Until today NO caller passed it, so the effective floor was 1 and a count collapsing 178 -> 1 still printed GATE PASS (gate-vacuity instance #11)."* This is a comment written by the change's own author, in the same file as the call — not a log, not a transcript, and not dated against the code (the Varan tooling tree is not under version control, so it cannot even be dated). `gate-thunks.py`'s "`--expect-min` needs a separate value argument" check also turns the mistyped `--expect-min=178` spelling (previously silently ignored, floor stuck at 1) into a **hard error** — that part IS a static, re-checkable fact, not a demonstration claim.
 - **WHAT IS MEASURED:** the flag is present at both call sites, with the values above, since F0.2 (2026-08-04).
-- **WHAT IS NOT MEASURED:** a run transcript showing the gate PASS at the census value (178) and FAIL when a count is raised above it. No such transcript is banked anywhere in this repo or in `D:\repo\mozbuild`.
-- **WHAT WOULD CLOSE IT:** **H-D26b** — run both directions, bank the transcript under `scratch/` (tracked), and cite it here by path.
+- **WHAT IS NOT MEASURED:** a run transcript showing the gate PASS at the census value (178) and FAIL when a count is raised above it. No such transcript is banked anywhere in this repo or in the Varan tooling tree.
+- **WHAT WOULD CLOSE IT:** the Varan-side handoff — run both directions, bank the transcript under `scratch/` (tracked), and cite it here by path.
 
-### D27 — `gate-thunks.py` class/population coverage · **ARMED — DEMONSTRATION OWED (H-D26b)**
+### D27 — `gate-thunks.py` class/population coverage · **ARMED — DEMONSTRATION OWED**
 
 > **2026-08-10: NOT CLOSED.** Same defect as D26 above: a prior pass wrote "CLOSED 2026-08-09 by
 > H1" on the strength of the callers' own comment ("All four floors demonstrated firing"), not a
-> banked run record. Downgraded to ARMED, tracked under the same handoff, H-D26b.
+> banked run record. Downgraded to ARMED, tracked under the same Varan-side handoff as D26.
 
 - **True only before H1.** The gate's original MAP-based check (`gate_binary()`) globs `**/*.goanna.map` and greps one mangling (`??_9\S*\$B`), so it only ever examined `$B`, in the binaries that have maps — `browsercomps.dll` had never been in its population, and a non-recursive glob had missed it three separate times. Meanwhile D02's carrier class was real: an unprototyped `$4` thunk under an ordinary mangled name was invisible to the gate **and** to the COMDAT override generator.
-- **RE-MEASURED 2026-08-10** in `D:\repo\mozbuild`: `gate-thunks.py` now carries a second, separate check, the `class_census()` function (banked byte-identical at `scratch/D26/banked-tooling/gate-thunks.py`), armed by `--class-floors`. It imports a vendored census engine (`varan-thunk-override/census/engine.py` — no banked copy exists for this one) that examines **all four** thunk families — `$B`, `$4`, `$R`, adjustor. Its population builder, `engine.build_population()`, is an explicitly **RECURSIVE** `os.walk` of `dist/bin`; the function's own docstring names the exact fix — *"a non-recursive glob missed [`browser\components\browsercomps.dll`] three separate times in the rt1 project"*. Both production call sites (banked copies `scratch/D26/banked-tooling/run-suite.sh`, `varan-fixup.sh`, each at their gate-thunks.py call) pass `--class-floors B=44,4=73,R=0,adj=4217 --expect-pes 19 --max-review 844`. `$R==0` is asserted exactly (never `>=`), so a floor of 0 cannot pass vacuously — the trap this row originally warned about; that IS a re-checkable static fact.
+- **RE-MEASURED 2026-08-10** in the Varan tooling tree: `gate-thunks.py` now carries a second, separate check, the `class_census()` function (banked byte-identical at `scratch/D26/banked-tooling/gate-thunks.py`), armed by `--class-floors`. It imports a vendored census engine (`varan-thunk-override/census/engine.py` — no banked copy exists for this one) that examines **all four** thunk families — `$B`, `$4`, `$R`, adjustor. Its population builder, `engine.build_population()`, is an explicitly **RECURSIVE** `os.walk` of `dist/bin`; the function's own docstring names the exact fix — *"a non-recursive glob missed [`browser\components\browsercomps.dll`] three separate times in the rt1 project"*. Both production call sites (banked copies `scratch/D26/banked-tooling/run-suite.sh`, `varan-fixup.sh`, each at their gate-thunks.py call) pass `--class-floors B=44,4=73,R=0,adj=4217 --expect-pes 19 --max-review 844`. `$R==0` is asserted exactly (never `>=`), so a floor of 0 cannot pass vacuously — the trap this row originally warned about; that IS a re-checkable static fact.
 - **WHAT IS MEASURED:** the four-family census engine is wired in and armed at both call sites, with the floors above, since H1 (2026-08-09).
-- **WHAT IS NOT MEASURED:** the callers' comment "All four floors demonstrated firing" is the author's own assertion in the same file as the call — no log, transcript, or run record is cited on this row, and `D:\repo\mozbuild` is not under version control, so the comment cannot even be dated against the code.
-- **WHAT WOULD CLOSE IT:** **H-D26b** — the same demonstration D26 owes, one run covering all four class floors in both directions.
+- **WHAT IS NOT MEASURED:** the callers' comment "All four floors demonstrated firing" is the author's own assertion in the same file as the call — no log, transcript, or run record is cited on this row, and the Varan tooling tree is not under version control, so the comment cannot even be dated against the code.
+- **WHAT WOULD CLOSE IT:** the same Varan-side handoff D26 owes — one run covering all four class floors in both directions.
 
 ### D28 — `split8.py` is unsound · **OPEN**
 
@@ -681,12 +681,12 @@ Bisect `[M-T10]`: `struct Plain { int x; char c; };` → rc=0 · `struct Fwd; st
 ### D30 — rt1 builds only ARM and X86 · NOT-A-BUG
 
 - Measured: rt1 `clang -print-targets` reports **6** (`arm armeb thumb thumbeb x86 x86-64`) where stock 18.1.8 reports **42**. `clang-cl --target=aarch64-pc-windows-msvc -c` **fails** on rt1 (`unable to create target: 'No available targets are compatible with triple …'`) and succeeds on stock.
-- Deliberate configuration (`LLVM_TARGETS_TO_BUILD=ARM;X86`), documented in an upstream filing prepared but **NOT YET FILED** §2 with the mitigation (install rt1 to a separate directory, or invoke it only for the ARM32 leg).
+- Deliberate configuration (`LLVM_TARGETS_TO_BUILD=ARM;X86`), documented in the upstream filing — prepared but not yet submitted — along with the mitigation (install rt1 to a separate directory, or invoke it only for the ARM32 leg).
 - Honest residual recorded there and not upgraded to a claim: whether `lld-link`'s ordinary non-LTO linking of other architectures is affected was **not measured**.
 
 ### D31 — five auxiliary binaries not rebuilt · **OPEN**
 
-- `clang-check.exe`, `clang-repl.exe`, `clang-scan-deps.exe`, `clang-linker-wrapper.exe`, `llvm-dwp.exe` are left at stock 18.1.8. **RE-MEASURED 2026-08-10 over the full stock package** (`C:\Program Files\LLVM\bin`, read only): 62 `.exe` total, `grep -ac "ARM Instruction Selection"` scores non-zero on exactly **14** — the 9 rt1 replaces (`clang`, `clang++`, `clang-cl`, `clang-cpp`, `ld.lld`, `ld64.lld`, `lld-link`, `lld`, `wasm-ld`) plus these **5 unreplaced**. The earlier screen's three-control arming (`llvm-strings.exe`, `llvm-cxxfilt.exe`, `clang-format.exe`, all score zero) was real but its **enumeration missed `llvm-dwp.exe`** — the fourth binary carrying the pass string that the earlier pass never named. Re-armed with a fourth negative control: `llvm-objdump.exe` also scores zero. So they **can** reproduce the bugs rt1 fixes.
+- `clang-check.exe`, `clang-repl.exe`, `clang-scan-deps.exe`, `clang-linker-wrapper.exe`, `llvm-dwp.exe` are left at stock 18.1.8. **RE-MEASURED 2026-08-10 over the full stock package** (the stock, unpatched reference install, read only): 62 `.exe` total, `grep -ac "ARM Instruction Selection"` scores non-zero on exactly **14** — the 9 rt1 replaces (`clang`, `clang++`, `clang-cl`, `clang-cpp`, `ld.lld`, `ld64.lld`, `lld-link`, `lld`, `wasm-ld`) plus these **5 unreplaced**. The earlier screen's three-control arming (`llvm-strings.exe`, `llvm-cxxfilt.exe`, `clang-format.exe`, all score zero) was real but its **enumeration missed `llvm-dwp.exe`** — the fourth binary carrying the pass string that the earlier pass never named. Re-armed with a fourth negative control: `llvm-objdump.exe` also scores zero. So they **can** reproduce the bugs rt1 fixes.
 - They are separate link products; rt1's build produces none of them (`build\bin` contains none).
 - **WHY OPEN:** the gap was *accepted* on the basis that they are 0-invocation in every Varan build — that is a statement about one consumer, not about the community RT ports that are rt1's second consumer.
 - **WHAT WOULD CLOSE IT:** either add the five to the product target list and overlay them (cost not yet measured), or state the limitation in the shipped README as a checked precondition ("if your build invokes any of them for ARM32 codegen, rt1 does not fix your build"). The README draft already says this; the row closes when PKG-1 adopts one of the two.
@@ -700,7 +700,7 @@ Bisect `[M-T10]`: `struct Plain { int x; char c; };` → rc=0 · `struct Fwd; st
 ### D33 — lit not runnable from the product target list · NOT-A-BUG
 
 - Measured build fact: the frozen list (`clang clang-resource-headers lld opt llc llvm-reduce FileCheck count not`) builds the shipped binaries but cannot run lit — `llvm-lit`'s config fatals on `llvm-config`, and `llvm-readobj` is required too.
-- Fix is documented and cheap: add `llvm-config llvm-readobj llvm-objdump yaml2obj llvm-mc llvm-nm split-file`. Cost **3049 → 3130 edges = +81** measured on this tree today (an upstream filing prepared but **NOT YET FILED** §6); the project record (`CLAUDE.md`, and `WORKLIST.md`'s "Rebuilders' note" bullet) says **+82**. The one-edge difference is unexplained and nothing depends on it — recorded rather than reconciled silently.
+- Fix is documented and cheap: add `llvm-config llvm-readobj llvm-objdump yaml2obj llvm-mc llvm-nm split-file`. Cost **3049 → 3130 edges = +81** measured on this tree today (an upstream filing is prepared but not yet submitted); the project record (`CLAUDE.md`, and `WORKLIST.md`'s "Rebuilders' note" bullet) says **+82**. The one-edge difference is unexplained and nothing depends on it — recorded rather than reconciled silently.
 
 ### D34 — `stage/bin/` completed to 9 of 9 driver copies · **CLOSED** (2026-08-10)
 
@@ -709,7 +709,7 @@ Bisect `[M-T10]`: `struct Plain { int x; char c; };` → rc=0 · `struct Fwd; st
 > `lld-link.exe`, and the three previously missing — **`ld.lld.exe`, `ld64.lld.exe`,
 > `wasm-ld.exe`** — the latter three with mtime 2026-08-10 03:34. All nine run and all nine carry
 > the shipped commit: `grep -ac 7653a13d8d28189c7cef1401b934ec30d98ea353` returns 2 on each.
-> `RT1-WORKLOG.md`'s "9/9 driver copies" bullet (§U5.3) records it independently: "9/9 driver copies staged (`ld.lld`, `ld64.lld`,
+> The project's working log's "9/9 driver copies" bullet records it independently: "9/9 driver copies staged (`ld.lld`, `ld64.lld`,
 > `wasm-ld` added)." `stage/MODIFICATIONS.txt`'s shipped manifest ("bin/ 9 driver executables")
 > only balances against 252 total files with 9, not 6. Closed by rt1's own packaging (PKG-1,
 > `WORKLIST.md` T7) — the decision this row deferred was simply to add the three, and they were
@@ -729,7 +729,7 @@ Bisect `[M-T10]`: `struct Plain { int x; char c; };` → rc=0 · `struct Fwd; st
 ### D36 — no upstream filing has been made · **OPEN**
 
 - Working rule 12: filing upstream and fixing in rt1 are **ADDITIVE tracks, never alternatives**. Five of the six patched/known defects have a complete draft; **none has been filed** — filing is the USER's action (rule 11), and this project produces drafts in `upstream/` only.
-- Drafts on disk `[M-T10]`: `ISSUE-bug5-backport.md` (D09, backport request, with the reduced IR appendix) · `ISSUE-bug1-musttail-forwarded-regs.md` (D01) · `ISSUE-bug2-lld-thumb-bit.md` (D04) · `COMMENT-bug4-issue-64278.md` (D07, a comment on an existing issue, not a new one) · `ISSUE-6-musttail-vararg-vastart.md` (D11) · `README-known-limitations.md`.
+- Drafts on disk `[measured]`: `ISSUE-bug5-backport.md` (D09, backport request, with the reduced IR appendix) · `ISSUE-bug1-musttail-forwarded-regs.md` (D01) · `ISSUE-bug2-lld-thumb-bit.md` (D04) · `COMMENT-bug4-issue-64278.md` (D07, a comment on an existing issue, not a new one) · `ISSUE-6-musttail-vararg-vastart.md` (D11) · `README-known-limitations.md`.
 - Nothing to file for D05 (adjudicated WAI) or D12 (already fixed in released LLVM 21).
 - **WHY OPEN:** the second track of rule 12 is untraversed for every row.
 - **WHAT WOULD CLOSE IT:** the user files the five drafts and the issue numbers are recorded back into this table and into `CLAUDE.md`'s upstream ledger.
@@ -743,7 +743,7 @@ Their status is recorded here rather than being given a fabricated one.
 
 | item | status |
 |---|---|
-| F4.3 — Bug-5 `llvm-reduce` IR reduction | **DONE** (`RT1-WORKLOG.md` T3): 29,272,948 B → 1,492 B / 43 lines, verified both directions |
+| F4.3 — Bug-5 `llvm-reduce` IR reduction | **DONE** (the project's working log): 29,272,948 B → 1,492 B / 43 lines, verified both directions |
 | F4.5 — upstream drafts for Bugs 1/2/4/#6 | **DONE** — files present; the *filing* is D36 |
 | T5 — README known-limitations draft | **DONE** as a draft; §1 still carries `TBD-pending-Varan-grep`, which is D14 |
 | T6 — doc wording (MinGW scope, P5 over-claim) | **DONE**; the underlying untested scope is D35 |
