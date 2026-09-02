@@ -1,0 +1,8 @@
+kit=TRIP-KIT-1
+probe=p5
+mode=control
+question=does this toolchain lower __try/__except/__finally the way MSVC does
+frames=ordinary Thumb only - the A32-frame oracle is dead (trip-4: all three toolchains including clang main fail to dispatch across an unregistered dynamic frame)
+built_by=MSVC _MSC_VER=1916
+build_id=MSVC-14.16.27023-ARM-reference
+control.about_to_fault_with_no_handler=1

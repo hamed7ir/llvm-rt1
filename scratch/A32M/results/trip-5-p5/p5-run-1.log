@@ -1,0 +1,206 @@
+TRIP-KIT-1/p5 
+RUN_INDEX=1 
+START_RAW=Wed 09/02/2026  2:27:33.51 
+ 
+[device] 
+COMPUTERNAME=DESKTOP-9C3DKH1 
+PROCESSOR_ARCHITECTURE=ARM 
+PROCESSOR_IDENTIFIER=ARM Family 7 Model C0F Revision 202, NVIDIA(R) 
+NUMBER_OF_PROCESSORS=4 
+
+Microsoft Windows [Version 10.0.15035]
+ 
+[code-integrity] 
+
+Windows Boot Loader
+-------------------
+identifier              {current}
+device                  partition=C:
+path                    \Windows\system32\winload.efi
+description             Windows 10
+locale                  en-US
+inherit                 {bootloadersettings}
+recoverysequence        {ec7cfec4-ef38-11e6-81f1-910aedb352e1}
+displaymessageoverride  Recovery
+recoveryenabled         Yes
+nointegritychecks       Yes
+testsigning             Yes
+isolatedcontext         Yes
+flightsigning           Yes
+allowedinmemorysettings 0x15000075
+osdevice                partition=C:
+systemroot              \Windows
+resumeobject            {bc4ca97f-ef38-11e6-81f1-806e6f6e6963}
+nx                      AlwaysOn
+bootmenupolicy          Standard
+--- CodeIntegrity directory --- 
+driver.stl
+SiPolicy.p7b
+--- CI policy registry --- 
+
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\CI\Config
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\CI\NGEN
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\CI\Policy
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\CI\Protected
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\CI\TRSData
+
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\CI\Policy
+    SkuPolicyRequired    REG_DWORD    0x0
+
+ 
+[verify] 
+PASS p5-A.exe f1ecc3790d37b5ef2c713b5fa73804b5f339655c4e4feb1c3ef26af8ea0dca35 
+PASS p5-C.exe 18c12406a75c9aabdbef06ea9440188f4ff66f09d3d7fd630abffa314be39249 
+all binaries verified 
+ 
+[control] the must-fail arm, both arms, before anything else 
+[p5 A control] 
+kit=TRIP-KIT-1
+probe=p5
+mode=control
+question=does this toolchain lower __try/__except/__finally the way MSVC does
+frames=ordinary Thumb only - the A32-frame oracle is dead (trip-4: all three toolchains including clang main fail to dispatch across an unregistered dynamic frame)
+built_by=MSVC _MSC_VER=1916
+build_id=MSVC-14.16.27023-ARM-reference
+control.about_to_fault_with_no_handler=1
+EXITCODE=-1073741819 
+control died as required, arm A 
+ 
+[p5 C control] 
+kit=TRIP-KIT-1
+probe=p5
+mode=control
+question=does this toolchain lower __try/__except/__finally the way MSVC does
+frames=ordinary Thumb only - the A32-frame oracle is dead (trip-4: all three toolchains including clang main fail to dispatch across an unregistered dynamic frame)
+built_by=clang 18.1.8
+build_id=rt1.1-60876c5f8fad221756afd9bbd534377b7ff06571
+control.about_to_fault_with_no_handler=1
+EXITCODE=-1073741819 
+control died as required, arm C 
+ 
+control died as required in BOTH arms - continuing 
+ 
+[p5 A except] 
+kit=TRIP-KIT-1
+probe=p5
+mode=except
+question=does this toolchain lower __try/__except/__finally the way MSVC does
+frames=ordinary Thumb only - the A32-frame oracle is dead (trip-4: all three toolchains including clang main fail to dispatch across an unregistered dynamic frame)
+built_by=MSVC _MSC_VER=1916
+build_id=MSVC-14.16.27023-ARM-reference
+except.filter_ran=1
+except.filter_code=0xC0000005
+except.filter_code_is_av=1
+except.handler_body_ran=1
+except.code_in_handler=0xC0000005
+except.code_agrees_filter_vs_handler=1
+except.seq=5
+except.resumed_where_expected=1
+except.stack_marker=0xA5A5F00D
+except.stack_intact=1
+VERDICT=PASS
+reason=filter ran, saw 0xC0000005, handler executed, codes agree, execution resumed, stack intact
+exit=0
+EXITCODE=0 
+ 
+[p5 C except] 
+kit=TRIP-KIT-1
+probe=p5
+mode=except
+question=does this toolchain lower __try/__except/__finally the way MSVC does
+frames=ordinary Thumb only - the A32-frame oracle is dead (trip-4: all three toolchains including clang main fail to dispatch across an unregistered dynamic frame)
+built_by=clang 18.1.8
+build_id=rt1.1-60876c5f8fad221756afd9bbd534377b7ff06571
+except.filter_ran=1
+except.filter_code=0xC0000005
+except.filter_code_is_av=1
+except.handler_body_ran=1
+except.code_in_handler=0xC0000005
+except.code_agrees_filter_vs_handler=1
+except.seq=5
+except.resumed_where_expected=1
+except.stack_marker=0xA5A5F00D
+except.stack_intact=1
+VERDICT=PASS
+reason=filter ran, saw 0xC0000005, handler executed, codes agree, execution resumed, stack intact
+exit=0
+EXITCODE=0 
+ 
+[p5 A finally] 
+kit=TRIP-KIT-1
+probe=p5
+mode=finally
+question=does this toolchain lower __try/__except/__finally the way MSVC does
+frames=ordinary Thumb only - the A32-frame oracle is dead (trip-4: all three toolchains including clang main fail to dispatch across an unregistered dynamic frame)
+built_by=MSVC _MSC_VER=1916
+build_id=MSVC-14.16.27023-ARM-reference
+finally.ran_on_normal_path=1
+finally.ran_on_exceptional_path=1
+finally.outer_filter_ran=1
+finally.filter_code=0xC0000005
+VERDICT=PASS
+reason=__finally ran on both paths and the exception still reached the outer __except
+exit=0
+EXITCODE=0 
+ 
+[p5 C finally] 
+kit=TRIP-KIT-1
+probe=p5
+mode=finally
+question=does this toolchain lower __try/__except/__finally the way MSVC does
+frames=ordinary Thumb only - the A32-frame oracle is dead (trip-4: all three toolchains including clang main fail to dispatch across an unregistered dynamic frame)
+built_by=clang 18.1.8
+build_id=rt1.1-60876c5f8fad221756afd9bbd534377b7ff06571
+finally.ran_on_normal_path=1
+finally.ran_on_exceptional_path=1
+finally.outer_filter_ran=1
+finally.filter_code=0xC0000005
+VERDICT=PASS
+reason=__finally ran on both paths and the exception still reached the outer __except
+exit=0
+EXITCODE=0 
+ 
+[p5 A nested] 
+kit=TRIP-KIT-1
+probe=p5
+mode=nested
+question=does this toolchain lower __try/__except/__finally the way MSVC does
+frames=ordinary Thumb only - the A32-frame oracle is dead (trip-4: all three toolchains including clang main fail to dispatch across an unregistered dynamic frame)
+built_by=MSVC _MSC_VER=1916
+build_id=MSVC-14.16.27023-ARM-reference
+nested.inner_filter_ran=1
+nested.outer_filter_ran=1
+nested.outer_handler_ran=1
+nested.filter_code=0xC0000005
+VERDICT=PASS
+reason=inner filter declined, exception propagated, outer __except caught it
+exit=0
+EXITCODE=0 
+ 
+[p5 C nested] 
+kit=TRIP-KIT-1
+probe=p5
+mode=nested
+question=does this toolchain lower __try/__except/__finally the way MSVC does
+frames=ordinary Thumb only - the A32-frame oracle is dead (trip-4: all three toolchains including clang main fail to dispatch across an unregistered dynamic frame)
+built_by=clang 18.1.8
+build_id=rt1.1-60876c5f8fad221756afd9bbd534377b7ff06571
+nested.inner_filter_ran=1
+nested.outer_filter_ran=1
+nested.outer_handler_ran=1
+nested.filter_code=0xC0000005
+VERDICT=PASS
+reason=inner filter declined, exception propagated, outer __except caught it
+exit=0
+EXITCODE=0 
+ 
+[summary] every VERDICT line found, in run order 
+  arm=A mode=except VERDICT=PASS 
+  arm=A mode=finally VERDICT=PASS 
+  arm=A mode=nested VERDICT=PASS 
+  arm=C mode=except VERDICT=PASS 
+  arm=C mode=finally VERDICT=PASS 
+  arm=C mode=nested VERDICT=PASS 
+ 
+END_RAW=Wed 09/02/2026  2:27:34.66 
+DONE 

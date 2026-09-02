@@ -23,3 +23,10 @@ __pycache__/
 # directory reached the public repo because it was created AFTER the measurement that chose what
 # to curate — the third instance of "a file created after a sweep is invisible to that sweep".
 .voice/
+
+# The aeabi shim SHIPS, source AND prebuilt -- it is the mitigation for the compiler-rt builtins
+# gap (D15), and under rt1 1.0 it lived only outside the package so porters could read about the
+# gap but not obtain the fix. The .lib/.obj are the only ARM32 TARGET binaries here; everything
+# else is x64 host toolchain. 3.3 KB together. Named file by file, never as a glob.
+!runtime/aeabi-shim.lib
+!runtime/aeabi-shim.obj

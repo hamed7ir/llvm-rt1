@@ -1,24 +1,34 @@
-# rt1 — release notes
+# rt1.1 — release notes
 
-rt1 is a small **binary overlay** onto the official LLVM 18.1.8 win64 package, for people
+rt1.1 is a small **binary overlay** onto the official LLVM 18.1.8 win64 package, for people
 **compiling C and C++ for ARM32 Windows** (`thumbv7`) with `clang-cl` and
 `lld-link`. It fixes four code-generation and linker defects that produce silently wrong ARM32
-binaries, and four narrower ones — see the patch table. If you do not target ARM32 Windows, you do
-not need it.
+binaries, and four narrower ones, and it **adds Windows SEH support for ARM32** — see the patch
+table. If you do not target ARM32 Windows, you do not need it.
 
 **To install:** install the official LLVM 18.1.8 win64 package, then copy this package's
 `bin/` and `lib/clang/18/include/` over it. Nothing else in the installation is touched, and
-`stage/MODIFICATIONS.txt` tells you how to confirm the binaries you are holding are these
-ones.
+`MODIFICATIONS.txt` tells you how to confirm the binaries you are holding are these ones.
 
-It is **not a maintained fork**: released once for the Open-RT community, with no rebases and
-no version bumps. Base is `llvmorg-18.1.8` (`3b5b5c1ec`).
+## rt1.1 is a SECOND FROZEN RELEASE, not the start of maintenance
+
+rt1 said it was released once, with no rebases and no version bumps. **That is still true of rt1,
+and it is true of rt1.1 as well.** rt1.1 is not an update stream and does not make rt1's promise
+retroactively false: it is a second one-shot release, cut from the same frozen `llvmorg-18.1.8`
+base (`3b5b5c1ec`), carrying one additional patch. There is no rt1.2 planned, no rebase planned,
+and no version bump planned.
+
+If you are using rt1 and do not need `__try` on ARM32, **you have no reason to move.** Every patch
+in rt1 is in rt1.1 unchanged, and the compiler produces identical objects for code that does not
+use SEH — measured, not assumed; see *Verification status*.
+
+Neither release is maintained. Both are archives.
 
 ---
 
 ## The patch set
 
-**Eight patches, all accepted.**
+**Nine patches, all accepted.**
 
 | patch | fixes | origin |
 |---|---|---|
@@ -30,8 +40,79 @@ no version bumps. Base is `llvmorg-18.1.8` (`3b5b5c1ec`).
 | **0006** | `-Wpadded` / `-Wpadded-bitfield` dead under the MS record layout builder | **PORT** from LLVM 21 |
 | **0007** | musttail vararg forwarder that also calls `va_start` → backend fatal | ours |
 | **0008** | crash under `-fdump-record-layouts-complete` | **PORT** of `e4882d83d77f` (LLVM 19) + 2 rt1 tests |
+| **0009** | **NEW IN rt1.1** — Windows SEH (`__try` / `__except` / `__finally`) for ARM32 | **PORT** of `6c34ed7b3` (PR #184953, LLVM 21) |
 
 ---
+
+# What is new in rt1.1
+
+## Windows SEH works on ARM32 — and it does not, yet, in any released clang
+
+`__try` / `__except` / `__finally` compile for `thumbv7-unknown-windows-msvc`. That is the whole
+point of this release.
+
+MEASURED 2026-08-31, one source file, four compilers, same target and flags:
+
+| compiler | `__try` |
+|---|---|
+| **rt1.1** | **accepted** — object emitted |
+| rt1 (the first release) | rejected: *"SEH '__try' is not supported on this target"* |
+| clang **21.1.8** | rejected, same message |
+| clang **22.1.8** | rejected, same message |
+
+The gate is in the **front end**, and it is one condition. `TargetInfo::isSEHTrySupported()` allows
+SEH on Windows for x86 and aarch64 only; patch 0009 adds `|| getTriple().isThumb()`. Read the
+released headers and you can see it: `llvmorg-21.1.8` and `llvmorg-22.1.8` both have the two-target
+form, upstream `main` has the three-target form.
+
+**So this is a backport, not an invention.** Patch 0009 ports upstream `6c34ed7b3`
+(*"[ARM] Add support for Windows SEH"*, PR #184953, 2026-05-18). That commit is on `main` and is
+**not an ancestor of `llvmorg-22.1.8`** — the release branch had already diverged — so it has not
+appeared in a released clang. If you want ARM32 SEH today, this package or a build of `main` are
+the options.
+
+**What was adapted, and why.** LLVM 18 declares the `cleanupret` SelectionDAG node with `SDTNone`
+— zero operands — while `main` declares it with one. Upstream's `[(cleanupret bb)]` therefore fails
+TableGen on an 18.1.8 tree before anything compiles. rt1 writes `[(cleanupret)]`, following the
+spelling the same tree already uses for the two targets that support Windows SEH there
+(`AArch64InstrInfo.td`, `X86InstrCompiler.td`). **This is version skew, not a defect in `main`**,
+so there is nothing to report upstream; it is recorded as D41 in the disposition table so that the
+next person to backport this patch does not rediscover it as a bug.
+
+⚠ **SEH has compiled here; it has not been executed on hardware.** See *Hardware validation*.
+
+## The `__aeabi` divmod shim now ships
+
+rt1 shipped no `clang_rt.builtins` archive and no shim, which left porters knowing about the gap
+but unable to obtain the fix. **The shim is now in the package, source and prebuilt**:
+
+| file | size | what it is |
+|---|---|---|
+| `runtime/aeabi-shim.c` | 2,858 B | the source, so you can read and rebuild it |
+| `runtime/aeabi-shim.lib` | 1,814 B | **prebuilt** — pass it to `lld-link`, no build step |
+| `runtime/aeabi-shim.obj` | 1,466 B | the object, if you prefer it |
+| `runtime/README-aeabi-shim.txt` | — | when it applies, and the one behavioural difference |
+
+The prebuilt files were built by this package's own `clang-cl` for
+`thumbv7-unknown-windows-msvc` at `-O1` with `-mno-incremental-linker-compatible`, so the COFF
+timestamp is zero and they are reproducible. **They are the only ARM32 target binaries in the
+package** — everything else here is the x64 host toolchain. `llvm-nm` shows exactly four defined
+symbols (`__aeabi_idiv`, `__aeabi_idivmod`, `__aeabi_uidiv`, `__aeabi_uidivmod`) and two undefined
+(`__rt_sdiv`, `__rt_udiv`, both from the MSVC ARM CRT).
+
+**It is opt-in.** Nothing links it for you, and nothing should — adding it changes divide-by-zero
+from whatever your code did before to a `__brkdiv0` trap. Add it when, and only when, the link
+fails with those two undefined symbols.
+
+The short version: **you almost certainly do not need it.** Ordinary `a / b` on this target lowers
+to `__rt_sdiv` / `__rt_udiv`, which the MSVC ARM CRT ships — MEASURED, the only undefined symbols
+in such an object. You need the shim only if your own source *names* `__aeabi_idivmod` or
+`__aeabi_uidivmod`, as SpiderMonkey's soft-divide and wasm paths do.
+
+**rt1.1 still ships no builtins archive, and that remains deliberate.** compiler-rt's
+`__udivmodsi4` does not trap on divide-by-zero where MSVC's `__rt_*` helpers do; taking it would
+trade a platform-matching trap for a silent wrong answer. Both CMake gates that would have blocked
+building it actually move, so the gates were never the reason — the semantics are.
 
 # Porting checklist for Windows RT / ARM32
 
@@ -48,8 +129,13 @@ marks the case where the linker synthesises the `__imp_` pointer itself. Unpatch
 dies. rt1 fixes this; if you build with stock lld, treat every LNK4217 on a function as a live
 defect.
 
-**4. The `__aeabi` divmod gap.** compiler-rt ships no `clang_rt.builtins` for a Windows thumb
-triple, so `__aeabi_idivmod` / `__aeabi_uidivmod` are unresolved.
+**4. The `__aeabi` divmod gap — but only if your source names those symbols.** compiler-rt ships
+no `clang_rt.builtins` for a Windows thumb triple, so `__aeabi_idivmod` / `__aeabi_uidivmod` go
+unresolved *when something references them*. Clang itself never emits them here: on
+`thumbv7-windows-msvc` ordinary division lowers to `__rt_sdiv` / `__rt_udiv`. The same source at
+the same `-mcpu` emits the `__aeabi_*` family only under an EABI triple. So this bites code that
+names the helpers explicitly — in Varan, SpiderMonkey's wasm path takes the address of
+`__aeabi_idivmod` — and a port that never names them will never see it.
 
 - **The practical fix is a small shim** that forwards to the CRT's `__rt_sdiv` / `__rt_udiv`, plus
   a `long long` variant.
@@ -292,7 +378,9 @@ LLVM DLLs, resource headers at `lib/clang/18`.
 |---|---|
 | **0006** — `-Wpadded` under the MS record layout builder | **PORT** of upstream's LLVM 21 implementation, structurally identical at the same call sites |
 | **0008** — guard `RecordDecl::completeDefinition()` | **PORT**, verbatim, of upstream `e4882d83d77f` (first shipped **LLVM 19**, never backported to 18.x) — including upstream's own comment block and both of its test files, plus **two rt1-authored tests, which are ours** (`dump-complete-invalid-field.cpp`, `dump-complete-uninstantiable.cpp`) |
-| 0001, 0002, 0003, 0004, 0005, 0007 | **ours** — authored here, with upstream drafts written but not filed |
+| **0002** — lld local-import Thumb bit | **ours**, and **now upstream**: submitted as PR #215919 and **merged 2026-08-27 as `bfaec6c07`**, touching `lld/COFF/Chunks.cpp`. It will ship in **LLVM 24** and is in no released version, which is why rt1.1 still carries the patch |
+| **0009** — Windows SEH for ARM32 | **PORT** of upstream `6c34ed7b3` (PR #184953), adapted for LLVM 18's `cleanupret` arity — see D41 in the disposition table. That commit is on `main` and is **not** an ancestor of `llvmorg-22.1.8`, so it has shipped in no released clang |
+| 0001, 0003, 0004, 0005, 0007 | **ours** — authored here, with upstream drafts written but **not filed**. Bug 1 (forwarded `musttail` registers), Bug 4 (CodeView tuple-register ICE) and defect #6 (musttail vararg + `va_start`) all **remain unfixed upstream** |
 
 **Upstream is owed nothing for the fixes in 0006 and 0008** — they are upstream's own, carried back
 to a branch that never received them. 0008's two rt1-authored tests are ours and are offered, not
@@ -348,6 +436,60 @@ recently (the Developer Policy now redirects to a separate AI Tool Use Policy) a
 not encode a stale requirement.
 
 ## Verification status
+
+### rt1.1's own gate: the whole Varan corpus, compiled twice, compared object by object
+
+**2,582 of 2,582 translation units. 2,581 sha256-identical. One difference, explained. Zero
+skipped. 38 of 38 subtrees.**
+
+Every TU of the Varan browser corpus was compiled by **rt1 1.0** and by **rt1.1**, same flags, same
+order, debug info off, and the resulting objects compared by sha256. The point is narrow and it is
+the one that matters for a second release: **patch 0009 changes nothing for code that does not use
+SEH.** That is what allows rt1.1 to inherit rt1's device validation instead of requiring a new
+hardware trip for the patches that were already accepted.
+
+The single difference is `js/src/jit/VaranFaultReporter.cpp`, which embeds `__DATE__` and `__TIME__`
+in a string literal. It is not codegen: the *same* compiler run twice, twenty seconds apart, differs
+in the same bytes. Exactly one source file in the corpus does this.
+
+The comparison is armed rather than merely quiet. Run against stock LLVM 18.1.8 instead of rt1.1 —
+two compilers that genuinely differ — the same harness reports **2 differing objects out of 40**, in
+libffi. So "identical" is an absence of difference, not an inability to see one.
+
+**What this does not cover: SEH itself.** No `__try` block in this corpus reaches a device in this
+measurement — the corpus gate compares objects, not behaviour. **SEH was validated separately, on
+hardware:** see *SEH on real hardware*, below.
+
+### SEH on real hardware — Tegra 3, Windows 10 build 15035, 2026-09-02
+
+`__try` / `__except` / `__finally` were executed on an actual ARM32 device and compared against
+**MSVC 14.16 as the reference implementation**, same source, same four modes.
+
+**Every mode passed in both toolchains, and every recorded field is identical.** A diff of the two
+arms' output — excluding only the two lines that identify which compiler built each binary —
+returns nothing:
+
+| mode | MSVC 14.16 | rt1.1 |
+|---|---|---|
+| `except`  | PASS | PASS |
+| `finally` | PASS | PASS |
+| `nested`  | PASS | PASS |
+
+`nested` is the one that matters: the inner filter declines and the **outer** handler catches, which
+is real stack unwinding rather than a single-frame shortcut.
+
+**The must-fail control ran first and died in both arms**, exit `0xC0000005`, as it must — a filter
+that declines with nothing else to handle the fault has to kill the process. Had it survived, the
+probe could not detect a dispatch failure and every other result would have been discarded. The
+run script enforces that itself and stops.
+
+Both binaries were hash-verified on the device before anything ran, and each carries its own build
+identity into its results, so the two columns above are provably from two different compilers.
+
+Full record: `scratch/A32M/P5-RESULTS.md`, with the raw device output at
+`scratch/A32M/results/trip-5-p5/`. The readings were fixed in writing **before** the trip.
+
+### rt1's device trip
 
 The device trip returned PASS on 2026-08-09. All eight patches are ACCEPTED; the provisional
 tags are resolved. The three entries that were blocked — the `declspec(align)` case, the

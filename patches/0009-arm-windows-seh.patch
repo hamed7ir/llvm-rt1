@@ -1,0 +1,1756 @@
+From 60876c5f8fad221756afd9bbd534377b7ff06571 Mon Sep 17 00:00:00 2001
+From: hamed7ir <hamedghorbani17@live.com>
+Date: Sun, 30 Aug 2026 12:02:33 -0700
+Subject: [PATCH] [ARM] Port Windows SEH support from upstream 6c34ed7b3 (PR
+ #184953)
+
+Ports __try/__except/__finally support for thumbv7-windows-msvc into the 18.1.8 tree.
+45 of 53 upstream hunks apply verbatim. Three adaptations and one drop:
+
+DROPPED: the 'NumBytes -= GPRCS3Size;' hunk. rt1 has no GPRCS3 area - 18.1.8 has a two-way
+callee-save split - and rt1's patch 0001 already carries the identical correction as
+'NumBytes = GPRCS2Offset;'. Applying both would under-allocate by 8 bytes.
+
+RE-ANCHORED: three hunks whose context names post-18 symbols (t2BXAUT_RET, TCRETURNrinotr12)
+or an upstream-only comment line.
+
+ADAPTED: CLEANUPRET's pattern. Upstream writes [(cleanupret bb)] because main declares
+SDTCleanupret as SDTypeProfile<0,1>; 18.1.8 declares cleanupret with SDTNone - zero operands -
+so the upstream spelling fails TableGen. In-tree precedent for the 18 spelling: AArch64 and
+X86 both write [(cleanupret)]. CATCHRET needs no change; 18's SDTCatchret is already <0,2>.
+
+Test IR adapted to 18: 24 'getelementptr inbounds nuw' -> 'inbounds' (nuw on GEP is 19+),
+2 'captures(none)' -> 'nocapture' (20+ spelling), and llvm.lifetime.{start,end}.p0 restored to
+18's (i64 immarg, ptr) signature. 17 CHECK lines rebaselined for two assembler-PRINTING
+differences - 18 prints '.set NAME, VALUE' where main prints 'NAME = VALUE', and 18
+parenthesises ':lower16:(SYM)'. Every emitted VALUE is byte-identical to upstream's
+expectation, verified symbol by symbol, so these are rebaselining and not findings.
+
+wineh-framepointer.ll is untouched: its three __chkstk constants already read 1254/1256/1257
+because patch 0001 produced them. That triple is the anti-double-application oracle and rt1+0009
+still emits it.
+
+Assisted-by: Claude Opus 5 (Anthropic)
+---
+ clang/include/clang/Basic/TargetInfo.h        |   3 +-
+ clang/test/CodeGen/exceptions-seh-finally.c   | 111 ++--
+ .../CodeGen/exceptions-seh-nested-finally.c   |   6 +-
+ clang/test/CodeGen/exceptions-seh.c           |  70 +--
+ llvm/lib/CodeGen/AsmPrinter/WinException.cpp  |   7 +-
+ llvm/lib/Target/ARM/ARMBaseRegisterInfo.cpp   |  23 +
+ llvm/lib/Target/ARM/ARMBaseRegisterInfo.h     |   1 +
+ llvm/lib/Target/ARM/ARMExpandPseudoInsts.cpp  |  10 +
+ llvm/lib/Target/ARM/ARMFrameLowering.cpp      |  14 +-
+ llvm/lib/Target/ARM/ARMFrameLowering.h        |   2 +
+ llvm/lib/Target/ARM/ARMISelLowering.cpp       |  23 +
+ llvm/lib/Target/ARM/ARMInstrInfo.td           |  27 +
+ llvm/lib/Target/ARM/ARMInstrThumb2.td         |   3 +
+ llvm/lib/Target/ARM/ARMMCInstLower.cpp        |   3 +
+ llvm/test/CodeGen/ARM/seh-except.ll           | 481 ++++++++++++++++++
+ llvm/test/CodeGen/ARM/seh-finally.ll          | 262 ++++++++++
+ llvm/test/CodeGen/ARM/wineh-dtor.ll           |  61 +++
+ .../CodeGen/ARM/wineh-try-catch-stack-args.ll |  57 +++
+ 18 files changed, 1073 insertions(+), 91 deletions(-)
+ create mode 100644 llvm/test/CodeGen/ARM/seh-except.ll
+ create mode 100644 llvm/test/CodeGen/ARM/seh-finally.ll
+ create mode 100644 llvm/test/CodeGen/ARM/wineh-dtor.ll
+ create mode 100644 llvm/test/CodeGen/ARM/wineh-try-catch-stack-args.ll
+
+diff --git a/clang/include/clang/Basic/TargetInfo.h b/clang/include/clang/Basic/TargetInfo.h
+index 3eb23ebda..406c1b786 100644
+--- a/clang/include/clang/Basic/TargetInfo.h
++++ b/clang/include/clang/Basic/TargetInfo.h
+@@ -1508,7 +1508,8 @@ public:
+   bool isSEHTrySupported() const {
+     return getTriple().isOSWindows() &&
+            (getTriple().isX86() ||
+-            getTriple().getArch() == llvm::Triple::aarch64);
++            getTriple().getArch() == llvm::Triple::aarch64 ||
++            getTriple().isThumb());
+   }
+ 
+   /// Return true if {|} are normal characters in the asm string.
+diff --git a/clang/test/CodeGen/exceptions-seh-finally.c b/clang/test/CodeGen/exceptions-seh-finally.c
+index 0cdf23031..8b6f6b124 100644
+--- a/clang/test/CodeGen/exceptions-seh-finally.c
++++ b/clang/test/CodeGen/exceptions-seh-finally.c
+@@ -1,6 +1,7 @@
+ // RUN: %clang_cc1 %s -triple x86_64-pc-win32 -fms-extensions -emit-llvm -O1 -disable-llvm-passes -o - | FileCheck %s
+ // RUN: %clang_cc1 %s -triple i686-pc-win32 -fms-extensions -emit-llvm -O1 -disable-llvm-passes -o - | FileCheck %s
+ // RUN: %clang_cc1 %s -triple aarch64-windows -fms-extensions -emit-llvm -O1 -disable-llvm-passes -o - | FileCheck %s
++// RUN: %clang_cc1 %s -triple thumbv7-windows -fms-extensions -emit-llvm -O1 -disable-llvm-passes -o - | FileCheck %s
+ // NOTE: we're passing "-O1 -disable-llvm-passes" to avoid adding optnone and noinline everywhere.
+ 
+ void abort(void) __attribute__((noreturn));
+@@ -15,24 +16,24 @@ void basic_finally(void) {
+   }
+ }
+ 
+-// CHECK-LABEL: define dso_local void @basic_finally()
+-// CHECK: invoke void @might_crash()
++// CHECK-LABEL: define dso_local {{.*}}void @basic_finally()
++// CHECK: invoke {{.*}}void @might_crash()
+ // CHECK:     to label %[[invoke_cont:[^ ]*]] unwind label %[[lpad:[^ ]*]]
+ //
+ // CHECK: [[invoke_cont]]
+ // CHECK: %[[fp:[^ ]*]] = call ptr @llvm.localaddress()
+-// CHECK: call void @"?fin$0@0@basic_finally@@"({{i8 noundef( zeroext)?}} 0, ptr noundef %[[fp]])
++// CHECK: call {{.*}}void @"?fin$0@0@basic_finally@@"({{i8 noundef( zeroext)?}} 0, ptr noundef %[[fp]])
+ // CHECK-NEXT: ret void
+ //
+ // CHECK: [[lpad]]
+ // CHECK-NEXT: %[[pad:[^ ]*]] = cleanuppad
+ // CHECK: %[[fp:[^ ]*]] = call ptr @llvm.localaddress()
+-// CHECK: call void @"?fin$0@0@basic_finally@@"({{i8 noundef( zeroext)?}} 1, ptr noundef %[[fp]])
++// CHECK: call {{.*}}void @"?fin$0@0@basic_finally@@"({{i8 noundef( zeroext)?}} 1, ptr noundef %[[fp]])
+ // CHECK-NEXT: cleanupret from %[[pad]] unwind to caller
+ 
+-// CHECK: define internal void @"?fin$0@0@basic_finally@@"({{.*}})
++// CHECK: define internal {{.*}}void @"?fin$0@0@basic_finally@@"({{.*}})
+ // CHECK-SAME: [[finally_attrs:#[0-9]+]]
+-// CHECK: call void @cleanup()
++// CHECK: call {{.*}}void @cleanup()
+ 
+ // Mostly check that we don't double emit 'r' which would crash.
+ void decl_in_finally(void) {
+@@ -55,22 +56,22 @@ l:
+   }
+ }
+ 
+-// CHECK-LABEL: define dso_local void @label_in_finally()
+-// CHECK: invoke void @might_crash()
++// CHECK-LABEL: define dso_local {{.*}}void @label_in_finally()
++// CHECK: invoke {{.*}}void @might_crash()
+ // CHECK:     to label %[[invoke_cont:[^ ]*]] unwind label %[[lpad:[^ ]*]]
+ //
+ // CHECK: [[invoke_cont]]
+ // CHECK: %[[fp:[^ ]*]] = call ptr @llvm.localaddress()
+-// CHECK: call void @"?fin$0@0@label_in_finally@@"({{i8 noundef( zeroext)?}} 0, ptr noundef %[[fp]])
++// CHECK: call {{.*}}void @"?fin$0@0@label_in_finally@@"({{i8 noundef( zeroext)?}} 0, ptr noundef %[[fp]])
+ // CHECK: ret void
+ 
+-// CHECK: define internal void @"?fin$0@0@label_in_finally@@"({{.*}})
++// CHECK: define internal {{.*}}void @"?fin$0@0@label_in_finally@@"({{.*}})
+ // CHECK-SAME: [[finally_attrs]]
+ // CHECK: br label %[[l:[^ ]*]]
+ //
+ // CHECK: [[l]]
+-// CHECK: call void @cleanup()
+-// CHECK: call i32 @check_condition()
++// CHECK: call {{.*}}void @cleanup()
++// CHECK: call {{.*}}i32 @check_condition()
+ // CHECK: br i1 {{.*}}, label
+ // CHECK: br label %[[l]]
+ 
+@@ -83,22 +84,22 @@ void use_abnormal_termination(void) {
+   }
+ }
+ 
+-// CHECK-LABEL: define dso_local void @use_abnormal_termination()
+-// CHECK: invoke void @might_crash()
++// CHECK-LABEL: define dso_local {{.*}}void @use_abnormal_termination()
++// CHECK: invoke {{.*}}void @might_crash()
+ // CHECK:     to label %[[invoke_cont:[^ ]*]] unwind label %[[lpad:[^ ]*]]
+ //
+ // CHECK: [[invoke_cont]]
+ // CHECK: %[[fp:[^ ]*]] = call ptr @llvm.localaddress()
+-// CHECK: call void @"?fin$0@0@use_abnormal_termination@@"({{i8 noundef( zeroext)?}} 0, ptr noundef %[[fp]])
++// CHECK: call {{.*}}void @"?fin$0@0@use_abnormal_termination@@"({{i8 noundef( zeroext)?}} 0, ptr noundef %[[fp]])
+ // CHECK: ret void
+ //
+ // CHECK: [[lpad]]
+ // CHECK-NEXT: %[[pad:[^ ]*]] = cleanuppad
+ // CHECK: %[[fp:[^ ]*]] = call ptr @llvm.localaddress()
+-// CHECK: call void @"?fin$0@0@use_abnormal_termination@@"({{i8 noundef( zeroext)?}} 1, ptr noundef %[[fp]])
++// CHECK: call {{.*}}void @"?fin$0@0@use_abnormal_termination@@"({{i8 noundef( zeroext)?}} 1, ptr noundef %[[fp]])
+ // CHECK-NEXT: cleanupret from %[[pad]] unwind to caller
+ 
+-// CHECK: define internal void @"?fin$0@0@use_abnormal_termination@@"({{i8 noundef( zeroext)?}} %[[abnormal:abnormal_termination]], ptr noundef %frame_pointer)
++// CHECK: define internal {{.*}}void @"?fin$0@0@use_abnormal_termination@@"({{i8 noundef( zeroext)?}} %[[abnormal:abnormal_termination]], ptr noundef %frame_pointer)
+ // CHECK-SAME: [[finally_attrs]]
+ // CHECK: %[[abnormal_zext:[^ ]*]] = zext i8 %[[abnormal]] to i32
+ // CHECK: store i32 %[[abnormal_zext]], ptr @crashed
+@@ -112,13 +113,13 @@ void noreturn_noop_finally(void) {
+   }
+ }
+ 
+-// CHECK-LABEL: define dso_local void @noreturn_noop_finally()
+-// CHECK: call void @"?fin$0@0@noreturn_noop_finally@@"({{.*}})
++// CHECK-LABEL: define dso_local {{.*}}void @noreturn_noop_finally()
++// CHECK: call {{.*}}void @"?fin$0@0@noreturn_noop_finally@@"({{.*}})
+ // CHECK: ret void
+ 
+-// CHECK: define internal void @"?fin$0@0@noreturn_noop_finally@@"({{.*}})
++// CHECK: define internal {{.*}}void @"?fin$0@0@noreturn_noop_finally@@"({{.*}})
+ // CHECK-SAME: [[finally_attrs]]
+-// CHECK: call void @abort()
++// CHECK: call {{.*}}void @abort()
+ // CHECK: unreachable
+ 
+ void noreturn_finally(void) {
+@@ -129,22 +130,22 @@ void noreturn_finally(void) {
+   }
+ }
+ 
+-// CHECK-LABEL: define dso_local void @noreturn_finally()
+-// CHECK: invoke void @might_crash()
++// CHECK-LABEL: define dso_local {{.*}}void @noreturn_finally()
++// CHECK: invoke {{.*}}void @might_crash()
+ // CHECK:     to label %[[cont:[^ ]*]] unwind label %[[lpad:[^ ]*]]
+ //
+ // CHECK: [[cont]]
+-// CHECK: call void @"?fin$0@0@noreturn_finally@@"({{.*}})
++// CHECK: call {{.*}}void @"?fin$0@0@noreturn_finally@@"({{.*}})
+ // CHECK: ret void
+ //
+ // CHECK: [[lpad]]
+ // CHECK-NEXT: %[[pad:[^ ]*]] = cleanuppad
+-// CHECK: call void @"?fin$0@0@noreturn_finally@@"({{.*}})
++// CHECK: call {{.*}}void @"?fin$0@0@noreturn_finally@@"({{.*}})
+ // CHECK-NEXT: cleanupret from %[[pad]] unwind to caller
+ 
+-// CHECK: define internal void @"?fin$0@0@noreturn_finally@@"({{.*}})
++// CHECK: define internal {{.*}}void @"?fin$0@0@noreturn_finally@@"({{.*}})
+ // CHECK-SAME: [[finally_attrs]]
+-// CHECK: call void @abort()
++// CHECK: call {{.*}}void @abort()
+ // CHECK: unreachable
+ 
+ int finally_with_return(void) {
+@@ -153,14 +154,14 @@ int finally_with_return(void) {
+   } __finally {
+   }
+ }
+-// CHECK-LABEL: define dso_local i32 @finally_with_return()
++// CHECK-LABEL: define dso_local {{.*}}i32 @finally_with_return()
+ // CHECK: store i32 1, ptr %cleanup.dest.slot
+ // CHECK: %cleanup.dest = load i32, ptr %cleanup.dest.slot
+ // CHECK: icmp ne i32 %cleanup.dest
+-// CHECK: call void @"?fin$0@0@finally_with_return@@"({{.*}})
++// CHECK: call {{.*}}void @"?fin$0@0@finally_with_return@@"({{.*}})
+ // CHECK: ret i32 42
+ 
+-// CHECK: define internal void @"?fin$0@0@finally_with_return@@"({{.*}})
++// CHECK: define internal {{.*}}void @"?fin$0@0@finally_with_return@@"({{.*}})
+ // CHECK-SAME: [[finally_attrs]]
+ // CHECK-NOT: br i1
+ // CHECK-NOT: br label
+@@ -178,24 +179,24 @@ int nested___finally___finally(void) {
+   return 0;
+ }
+ 
+-// CHECK-LABEL: define dso_local i32 @nested___finally___finally
+-// CHECK: invoke void @"?fin$1@0@nested___finally___finally@@"({{.*}})
++// CHECK-LABEL: define dso_local {{.*}}i32 @nested___finally___finally
++// CHECK: invoke {{.*}}void @"?fin$1@0@nested___finally___finally@@"({{.*}})
+ // CHECK:          to label %[[outercont:[^ ]*]] unwind label %[[lpad:[^ ]*]]
+ //
+ // CHECK: [[outercont]]
+-// CHECK: call void @"?fin$0@0@nested___finally___finally@@"({{.*}})
++// CHECK: call {{.*}}void @"?fin$0@0@nested___finally___finally@@"({{.*}})
+ // CHECK-NEXT: ret i32 0
+ //
+ // CHECK: [[lpad]]
+ // CHECK-NEXT: %[[pad:[^ ]*]] = cleanuppad
+-// CHECK: call void @"?fin$0@0@nested___finally___finally@@"({{.*}})
++// CHECK: call {{.*}}void @"?fin$0@0@nested___finally___finally@@"({{.*}})
+ // CHECK-NEXT: cleanupret from %[[pad]] unwind to caller
+ 
+-// CHECK-LABEL: define internal void @"?fin$0@0@nested___finally___finally@@"({{.*}})
++// CHECK-LABEL: define internal {{.*}}void @"?fin$0@0@nested___finally___finally@@"({{.*}})
+ // CHECK-SAME: [[finally_attrs]]
+ // CHECK: ret void
+ 
+-// CHECK-LABEL: define internal void @"?fin$1@0@nested___finally___finally@@"({{.*}})
++// CHECK-LABEL: define internal {{.*}}void @"?fin$1@0@nested___finally___finally@@"({{.*}})
+ // CHECK-SAME: [[finally_attrs]]
+ // CHECK: unreachable
+ 
+@@ -213,21 +214,21 @@ int nested___finally___finally_with_eh_edge(void) {
+   }
+   return 912;
+ }
+-// CHECK-LABEL: define dso_local i32 @nested___finally___finally_with_eh_edge
+-// CHECK: invoke void @might_crash()
++// CHECK-LABEL: define dso_local {{.*}}i32 @nested___finally___finally_with_eh_edge
++// CHECK: invoke {{.*}}void @might_crash()
+ // CHECK-NEXT: to label %[[invokecont:[^ ]*]] unwind label %[[lpad1:[^ ]*]]
+ //
+ // [[invokecont]]
+-// CHECK: invoke void @"?fin$1@0@nested___finally___finally_with_eh_edge@@"({{.*}})
++// CHECK: invoke {{.*}}void @"?fin$1@0@nested___finally___finally_with_eh_edge@@"({{.*}})
+ // CHECK-NEXT:       to label %[[outercont:[^ ]*]] unwind label %[[lpad2:[^ ]*]]
+ //
+ // CHECK: [[outercont]]
+-// CHECK: call void @"?fin$0@0@nested___finally___finally_with_eh_edge@@"({{.*}})
++// CHECK: call {{.*}}void @"?fin$0@0@nested___finally___finally_with_eh_edge@@"({{.*}})
+ // CHECK-NEXT: ret i32 912
+ //
+ // CHECK: [[lpad1]]
+ // CHECK-NEXT: %[[innerpad:[^ ]*]] = cleanuppad
+-// CHECK: invoke void @"?fin$1@0@nested___finally___finally_with_eh_edge@@"({{.*}})
++// CHECK: invoke {{.*}}void @"?fin$1@0@nested___finally___finally_with_eh_edge@@"({{.*}})
+ // CHECK-NEXT:    label %[[innercleanupretbb:[^ ]*]] unwind label %[[lpad2:[^ ]*]]
+ //
+ // CHECK: [[innercleanupretbb]]
+@@ -235,14 +236,14 @@ int nested___finally___finally_with_eh_edge(void) {
+ //
+ // CHECK: [[lpad2]]
+ // CHECK-NEXT: %[[outerpad:[^ ]*]] = cleanuppad
+-// CHECK: call void @"?fin$0@0@nested___finally___finally_with_eh_edge@@"({{.*}})
++// CHECK: call {{.*}}void @"?fin$0@0@nested___finally___finally_with_eh_edge@@"({{.*}})
+ // CHECK-NEXT: cleanupret from %[[outerpad]] unwind to caller
+ 
+-// CHECK-LABEL: define internal void @"?fin$0@0@nested___finally___finally_with_eh_edge@@"({{.*}})
++// CHECK-LABEL: define internal {{.*}}void @"?fin$0@0@nested___finally___finally_with_eh_edge@@"({{.*}})
+ // CHECK-SAME: [[finally_attrs]]
+ // CHECK: ret void
+ 
+-// CHECK-LABEL: define internal void @"?fin$1@0@nested___finally___finally_with_eh_edge@@"({{.*}})
++// CHECK-LABEL: define internal {{.*}}void @"?fin$1@0@nested___finally___finally_with_eh_edge@@"({{.*}})
+ // CHECK-SAME: [[finally_attrs]]
+ // CHECK: unreachable
+ 
+@@ -257,20 +258,20 @@ void finally_within_finally(void) {
+   }
+ }
+ 
+-// CHECK-LABEL: define dso_local void @finally_within_finally(
+-// CHECK: invoke void @might_crash(
++// CHECK-LABEL: define dso_local {{.*}}void @finally_within_finally(
++// CHECK: invoke {{.*}}void @might_crash(
+ 
+-// CHECK: call void @"?fin$0@0@finally_within_finally@@"(
+-// CHECK: call void @"?fin$0@0@finally_within_finally@@"({{.*}}) [ "funclet"(
++// CHECK: call {{.*}}void @"?fin$0@0@finally_within_finally@@"(
++// CHECK: call {{.*}}void @"?fin$0@0@finally_within_finally@@"({{.*}}) [ "funclet"(
+ 
+-// CHECK-LABEL: define internal void @"?fin$0@0@finally_within_finally@@"({{[^)]*}})
++// CHECK-LABEL: define internal {{.*}}void @"?fin$0@0@finally_within_finally@@"({{[^)]*}})
+ // CHECK-SAME: [[finally_attrs]]
+-// CHECK: invoke void @might_crash(
++// CHECK: invoke {{.*}}void @might_crash(
+ 
+-// CHECK: call void @"?fin$1@0@finally_within_finally@@"(
+-// CHECK: call void @"?fin$1@0@finally_within_finally@@"({{.*}}) [ "funclet"(
++// CHECK: call {{.*}}void @"?fin$1@0@finally_within_finally@@"(
++// CHECK: call {{.*}}void @"?fin$1@0@finally_within_finally@@"({{.*}}) [ "funclet"(
+ 
+-// CHECK-LABEL: define internal void @"?fin$1@0@finally_within_finally@@"({{[^)]*}})
++// CHECK-LABEL: define internal {{.*}}void @"?fin$1@0@finally_within_finally@@"({{[^)]*}})
+ // CHECK-SAME: [[finally_attrs]]
+ 
+ void cleanup_with_func(const char *);
+@@ -282,8 +283,8 @@ void finally_with_func(void) {
+   }
+ }
+ 
+-// CHECK-LABEL: define internal void @"?fin$0@0@finally_with_func@@"({{[^)]*}})
+-// CHECK: call void @cleanup_with_func(ptr noundef @"??_C@_0BC@COAGBPGM@finally_with_func?$AA@")
++// CHECK-LABEL: define internal {{.*}}void @"?fin$0@0@finally_with_func@@"({{[^)]*}})
++// CHECK: call {{.*}}void @cleanup_with_func(ptr noundef @"??_C@_0BC@COAGBPGM@finally_with_func?$AA@")
+ 
+ // Look for the absence of noinline.  nounwind is expected; any further
+ // attributes should be string attributes.
+diff --git a/clang/test/CodeGen/exceptions-seh-nested-finally.c b/clang/test/CodeGen/exceptions-seh-nested-finally.c
+index 8eb39581d..923922fb5 100644
+--- a/clang/test/CodeGen/exceptions-seh-nested-finally.c
++++ b/clang/test/CodeGen/exceptions-seh-nested-finally.c
+@@ -4,12 +4,14 @@
+ // RUN:         | FileCheck %s
+ // RUN: %clang_cc1 %s -triple aarch64-windows -fms-extensions -emit-llvm -o - \
+ // RUN:         | FileCheck %s
++// RUN: %clang_cc1 %s -triple thumbv7-windows -fms-extensions -emit-llvm -o - \
++// RUN:         | FileCheck %s
+ 
+ // Check that the first finally block passes the enclosing function's frame
+ // pointer to the second finally block, instead of generating it via localaddr.
+ 
+-// CHECK-LABEL: define internal void @"?fin$0@0@main@@"({{i8 noundef( zeroext)?}} %abnormal_termination, ptr noundef %frame_pointer)
+-// CHECK: call void @"?fin$1@0@main@@"({{i8 noundef( zeroext)?}} 0, ptr noundef %frame_pointer)
++// CHECK-LABEL: define internal {{.*}}void @"?fin$0@0@main@@"({{i8 noundef( zeroext)?}} %abnormal_termination, ptr noundef %frame_pointer)
++// CHECK: call {{.*}}void @"?fin$1@0@main@@"({{i8 noundef( zeroext)?}} 0, ptr noundef %frame_pointer)
+ int
+ main(void) {
+   int Check = 0;
+diff --git a/clang/test/CodeGen/exceptions-seh.c b/clang/test/CodeGen/exceptions-seh.c
+index a102afb1d..b7bb59973 100644
+--- a/clang/test/CodeGen/exceptions-seh.c
++++ b/clang/test/CodeGen/exceptions-seh.c
+@@ -4,6 +4,8 @@
+ // RUN:         | FileCheck %s --check-prefix=CHECK --check-prefix=X86
+ // RUN: %clang_cc1 %s -triple aarch64-windows -fms-extensions -emit-llvm -o - \
+ // RUN:         | FileCheck %s --check-prefixes=CHECK,ARM64
++// RUN: %clang_cc1 %s -triple thumbv7-windows -fms-extensions -emit-llvm -o - \
++// RUN:         | FileCheck %s --check-prefixes=CHECK,ARM
+ // RUN: %clang_cc1 %s -triple i686-pc-windows-gnu -fms-extensions -emit-llvm -o - \
+ // RUN:         | FileCheck %s --check-prefix=X86-GNU
+ // RUN: %clang_cc1 %s -triple x86_64-pc-windows-gnu -fms-extensions -emit-llvm -o - \
+@@ -12,7 +14,7 @@
+ void try_body(int numerator, int denominator, int *myres) {
+   *myres = numerator / denominator;
+ }
+-// CHECK-LABEL: define dso_local void @try_body(i32 noundef %numerator, i32 noundef %denominator, ptr noundef %myres)
++// CHECK-LABEL: define dso_local {{.*}}void @try_body(i32 noundef %numerator, i32 noundef %denominator, ptr noundef %myres)
+ // CHECK: sdiv i32
+ // CHECK: store i32 %{{.*}}, ptr
+ // CHECK: ret void
+@@ -29,16 +31,18 @@ int safe_div(int numerator, int denominator, int *res) {
+   return success;
+ }
+ 
+-// CHECK-LABEL: define dso_local i32 @safe_div(i32 noundef %numerator, i32 noundef %denominator, ptr noundef %res)
++// CHECK-LABEL: define dso_local {{.*}}i32 @safe_div(i32 noundef %numerator, i32 noundef %denominator, ptr noundef %res)
+ // X64-SAME:      personality ptr @__C_specific_handler
+ // ARM64-SAME:    personality ptr @__C_specific_handler
++// ARM-SAME:      personality ptr @__C_specific_handler
+ // X86-SAME:      personality ptr @_except_handler3
+-// CHECK: invoke void @try_body(i32 noundef %{{.*}}, i32 noundef %{{.*}}, ptr noundef %{{.*}}) #[[NOINLINE:[0-9]+]]
++// CHECK: invoke {{.*}}void @try_body(i32 noundef %{{.*}}, i32 noundef %{{.*}}, ptr noundef %{{.*}}) #[[NOINLINE:[0-9]+]]
+ // CHECK:       to label %{{.*}} unwind label %[[catchpad:[^ ]*]]
+ //
+ // CHECK: [[catchpad]]
+ // X64: %[[padtoken:[^ ]*]] = catchpad within %{{[^ ]*}} [ptr null]
+ // ARM64: %[[padtoken:[^ ]*]] = catchpad within %{{[^ ]*}} [ptr null]
++// ARM: %[[padtoken:[^ ]*]] = catchpad within %{{[^ ]*}} [ptr null]
+ // X86: %[[padtoken:[^ ]*]] = catchpad within %{{[^ ]*}} [ptr @"?filt$0@0@safe_div@@"]
+ // CHECK-NEXT: catchret from %[[padtoken]] to label %[[except:[^ ]*]]
+ //
+@@ -50,7 +54,7 @@ int safe_div(int numerator, int denominator, int *res) {
+ 
+ // 32-bit SEH needs this filter to save the exception code.
+ //
+-// X86-LABEL: define internal i32 @"?filt$0@0@safe_div@@"()
++// X86-LABEL: define internal {{.*}}i32 @"?filt$0@0@safe_div@@"()
+ // X86: %[[ebp:[^ ]*]] = call ptr @llvm.frameaddress.p0(i32 1)
+ // X86: %[[fp:[^ ]*]] = call ptr @llvm.eh.recoverfp(ptr @safe_div, ptr %[[ebp]])
+ // X86: call ptr @llvm.localrecover(ptr @safe_div, ptr %[[fp]], i32 0)
+@@ -61,9 +65,9 @@ int safe_div(int numerator, int denominator, int *res) {
+ // X86: ret i32 1
+ 
+ // Mingw uses msvcrt, so it can also use _except_handler3.
+-// X86-GNU-LABEL: define dso_local i32 @safe_div(i32 noundef %numerator, i32 noundef %denominator, ptr noundef %res)
++// X86-GNU-LABEL: define dso_local {{.*}}i32 @safe_div(i32 noundef %numerator, i32 noundef %denominator, ptr noundef %res)
+ // X86-GNU-SAME:      personality ptr @_except_handler3
+-// X64-GNU-LABEL: define dso_local i32 @safe_div(i32 noundef %numerator, i32 noundef %denominator, ptr noundef %res)
++// X64-GNU-LABEL: define dso_local {{.*}}i32 @safe_div(i32 noundef %numerator, i32 noundef %denominator, ptr noundef %res)
+ // X64-GNU-SAME:      personality ptr @__C_specific_handler
+ 
+ void j(void);
+@@ -78,15 +82,17 @@ int filter_expr_capture(void) {
+   return r;
+ }
+ 
+-// CHECK-LABEL: define dso_local i32 @filter_expr_capture()
++// CHECK-LABEL: define dso_local {{.*}}i32 @filter_expr_capture()
+ // X64-SAME: personality ptr @__C_specific_handler
+ // ARM64-SAME: personality ptr @__C_specific_handler
++// ARM-SAME: personality ptr @__C_specific_handler
+ // X86-SAME: personality ptr @_except_handler3
+ // X64: call void (...) @llvm.localescape(ptr %[[r:[^ ,]*]])
+ // ARM64: call void (...) @llvm.localescape(ptr %[[r:[^ ,]*]])
++// ARM: call void (...) @llvm.localescape(ptr %[[r:[^ ,]*]])
+ // X86: call void (...) @llvm.localescape(ptr %[[r:[^ ,]*]], ptr %[[code:[^ ,]*]])
+ // CHECK: store i32 42, ptr %[[r]]
+-// CHECK: invoke void @j() #[[NOINLINE]]
++// CHECK: invoke {{.*}}void @j() #[[NOINLINE]]
+ //
+ // CHECK: catchpad within %{{[^ ]*}} [ptr @"?filt$0@0@filter_expr_capture@@"]
+ // CHECK: store i32 13, ptr %[[r]]
+@@ -94,15 +100,19 @@ int filter_expr_capture(void) {
+ // CHECK: %[[rv:[^ ]*]] = load i32, ptr %[[r]]
+ // CHECK: ret i32 %[[rv]]
+ 
+-// X64-LABEL: define internal i32 @"?filt$0@0@filter_expr_capture@@"(ptr noundef %exception_pointers, ptr noundef %frame_pointer)
++// X64-LABEL: define internal {{.*}}i32 @"?filt$0@0@filter_expr_capture@@"(ptr noundef %exception_pointers, ptr noundef %frame_pointer)
+ // X64: %[[fp:[^ ]*]] = call ptr @llvm.eh.recoverfp(ptr @filter_expr_capture, ptr %frame_pointer)
+ // X64: call ptr @llvm.localrecover(ptr @filter_expr_capture, ptr %[[fp]], i32 0)
+ //
+-// ARM64-LABEL: define internal i32 @"?filt$0@0@filter_expr_capture@@"(ptr noundef %exception_pointers, ptr noundef %frame_pointer)
++// ARM64-LABEL: define internal {{.*}}i32 @"?filt$0@0@filter_expr_capture@@"(ptr noundef %exception_pointers, ptr noundef %frame_pointer)
+ // ARM64: %[[fp:[^ ]*]] = call ptr @llvm.eh.recoverfp(ptr @filter_expr_capture, ptr %frame_pointer)
+ // ARM64: call ptr @llvm.localrecover(ptr @filter_expr_capture, ptr %[[fp]], i32 0)
+ //
+-// X86-LABEL: define internal i32 @"?filt$0@0@filter_expr_capture@@"()
++// ARM-LABEL: define internal {{.*}}i32 @"?filt$0@0@filter_expr_capture@@"(ptr noundef %exception_pointers, ptr noundef %frame_pointer)
++// ARM: %[[fp:[^ ]*]] = call ptr @llvm.eh.recoverfp(ptr @filter_expr_capture, ptr %frame_pointer)
++// ARM: call ptr @llvm.localrecover(ptr @filter_expr_capture, ptr %[[fp]], i32 0)
++//
++// X86-LABEL: define internal {{.*}}i32 @"?filt$0@0@filter_expr_capture@@"()
+ // X86: %[[ebp:[^ ]*]] = call ptr @llvm.frameaddress.p0(i32 1)
+ // X86: %[[fp:[^ ]*]] = call ptr @llvm.eh.recoverfp(ptr @filter_expr_capture, ptr %[[ebp]])
+ // X86: call ptr @llvm.localrecover(ptr @filter_expr_capture, ptr %[[fp]], i32 0)
+@@ -124,12 +134,13 @@ int nested_try(void) {
+   }
+   return r;
+ }
+-// CHECK-LABEL: define dso_local i32 @nested_try()
++// CHECK-LABEL: define dso_local {{.*}}i32 @nested_try()
+ // X64-SAME: personality ptr @__C_specific_handler
+ // ARM64-SAME: personality ptr @__C_specific_handler
++// ARM-SAME: personality ptr @__C_specific_handler
+ // X86-SAME: personality ptr @_except_handler3
+ // CHECK: store i32 42, ptr %[[r:[^ ,]*]]
+-// CHECK: invoke void @j() #[[NOINLINE]]
++// CHECK: invoke {{.*}}void @j() #[[NOINLINE]]
+ // CHECK:       to label %[[cont:[^ ]*]] unwind label %[[cswitch_inner:[^ ]*]]
+ //
+ // CHECK: [[cswitch_inner]]
+@@ -165,13 +176,13 @@ int nested_try(void) {
+ // CHECK: store i32 0, ptr %[[r]]
+ // CHECK: br label %[[inner_try_cont]]
+ //
+-// CHECK-LABEL: define internal i32 @"?filt$0@0@nested_try@@"({{.*}})
++// CHECK-LABEL: define internal {{.*}}i32 @"?filt$0@0@nested_try@@"({{.*}})
+ // X86: call ptr @llvm.eh.recoverfp({{.*}})
+ // CHECK: load ptr, ptr
+ // CHECK: load i32, ptr
+ // CHECK: icmp eq i32 %{{.*}}, 456
+ //
+-// CHECK-LABEL: define internal i32 @"?filt$1@0@nested_try@@"({{.*}})
++// CHECK-LABEL: define internal {{.*}}i32 @"?filt$1@0@nested_try@@"({{.*}})
+ // X86: call ptr @llvm.eh.recoverfp({{.*}})
+ // CHECK: load ptr, ptr
+ // CHECK: load i32, ptr
+@@ -185,30 +196,31 @@ int basic_finally(int g) {
+   }
+   return g;
+ }
+-// CHECK-LABEL: define dso_local i32 @basic_finally(i32 noundef %g)
++// CHECK-LABEL: define dso_local {{.*}}i32 @basic_finally(i32 noundef %g)
+ // X64-SAME: personality ptr @__C_specific_handler
+ // ARM64-SAME: personality ptr @__C_specific_handler
++// ARM-SAME: personality ptr @__C_specific_handler
+ // X86-SAME: personality ptr @_except_handler3
+ // CHECK: %[[g_addr:[^ ]*]] = alloca i32, align 4
+ // CHECK: call void (...) @llvm.localescape(ptr %[[g_addr]])
+ // CHECK: store i32 %g, ptr %[[g_addr]]
+ //
+-// CHECK: invoke void @j()
++// CHECK: invoke {{.*}}void @j()
+ // CHECK:       to label %[[cont:[^ ]*]] unwind label %[[cleanuppad:[^ ]*]]
+ //
+ // CHECK: [[cont]]
+ // CHECK: %[[fp:[^ ]*]] = call ptr @llvm.localaddress()
+-// CHECK: call void @"?fin$0@0@basic_finally@@"({{i8 noundef( zeroext)?}} 0, ptr noundef %[[fp]])
++// CHECK: call {{.*}}void @"?fin$0@0@basic_finally@@"({{i8 noundef( zeroext)?}} 0, ptr noundef %[[fp]])
+ // CHECK: load i32, ptr %[[g_addr]], align 4
+ // CHECK: ret i32
+ //
+ // CHECK: [[cleanuppad]]
+ // CHECK: %[[padtoken:[^ ]*]] = cleanuppad within none []
+ // CHECK: %[[fp:[^ ]*]] = call ptr @llvm.localaddress()
+-// CHECK: call void @"?fin$0@0@basic_finally@@"({{i8 noundef( zeroext)?}} 1, ptr noundef %[[fp]])
++// CHECK: call {{.*}}void @"?fin$0@0@basic_finally@@"({{i8 noundef( zeroext)?}} 1, ptr noundef %[[fp]])
+ // CHECK: cleanupret from %[[padtoken]] unwind to caller
+ 
+-// CHECK: define internal void @"?fin$0@0@basic_finally@@"({{i8 noundef( zeroext)?}} %abnormal_termination, ptr noundef %frame_pointer)
++// CHECK: define internal {{.*}}void @"?fin$0@0@basic_finally@@"({{i8 noundef( zeroext)?}} %abnormal_termination, ptr noundef %frame_pointer)
+ // CHECK:   call ptr @llvm.localrecover(ptr @basic_finally, ptr %frame_pointer, i32 0)
+ // CHECK:   load i32, ptr %{{.*}}, align 4
+ // CHECK:   add nsw i32 %{{.*}}, 1
+@@ -223,8 +235,8 @@ int except_return(void) {
+     return 42;
+   }
+ }
+-// CHECK-LABEL: define dso_local i32 @except_return()
+-// CHECK: %[[tmp:[^ ]*]] = invoke i32 @returns_int()
++// CHECK-LABEL: define dso_local {{.*}}i32 @except_return()
++// CHECK: %[[tmp:[^ ]*]] = invoke {{.*}}i32 @returns_int()
+ // CHECK:       to label %[[cont:[^ ]*]] unwind label %[[catchpad:[^ ]*]]
+ //
+ // CHECK: [[catchpad]]
+@@ -252,13 +264,13 @@ void finally_capture_twice(int x) {
+   }
+ }
+ //
+-// CHECK-LABEL: define dso_local void @finally_capture_twice(
++// CHECK-LABEL: define dso_local {{.*}}void @finally_capture_twice(
+ // CHECK:         [[X:%.*]] = alloca i32, align 4
+ // CHECK:         call void (...) @llvm.localescape(ptr [[X]])
+ // CHECK-NEXT:    store i32 {{.*}}, ptr [[X]], align 4
+ // CHECK-NEXT:    [[LOCAL:%.*]] = call ptr @llvm.localaddress()
+-// CHECK-NEXT:    call void [[FINALLY:@.*]](i8 noundef{{ zeroext | }}0, ptr noundef [[LOCAL]])
+-// CHECK:       define internal void [[FINALLY]](
++// CHECK-NEXT:    call {{.*}}void [[FINALLY:@.*]](i8 noundef{{ zeroext | }}0, ptr noundef [[LOCAL]])
++// CHECK:       define internal {{.*}}void [[FINALLY]](
+ // CHECK:         [[LOCAL:%.*]] = call ptr @llvm.localrecover(
+ // CHECK-NEXT:    [[Y:%.*]] = alloca i32, align 4
+ // CHECK-NEXT:    [[Z:%.*]] = alloca i32, align 4
+@@ -278,15 +290,15 @@ int exception_code_in_except(void) {
+   }
+ }
+ 
+-// CHECK-LABEL: define dso_local i32 @exception_code_in_except()
++// CHECK-LABEL: define dso_local {{.*}}i32 @exception_code_in_except()
+ // CHECK: %[[ret_slot:[^ ]*]] = alloca i32
+ // CHECK: %[[code_slot:[^ ]*]] = alloca i32
+-// CHECK: invoke void @try_body(i32 noundef 0, i32 noundef 0, ptr noundef null)
++// CHECK: invoke {{.*}}void @try_body(i32 noundef 0, i32 noundef 0, ptr noundef null)
+ // CHECK: %[[pad:[^ ]*]] = catchpad
+ // CHECK: catchret from %[[pad]]
+-// X64: %[[code:[^ ]*]] = call i32 @llvm.eh.exceptioncode(token %[[pad]])
++// X64: %[[code:[^ ]*]] = call {{.*}}i32 @llvm.eh.exceptioncode(token %[[pad]])
+ // X64: store i32 %[[code]], ptr %[[code_slot]]
+-// ARM64: %[[code:[^ ]*]] = call i32 @llvm.eh.exceptioncode(token %[[pad]])
++// ARM64: %[[code:[^ ]*]] = call {{.*}}i32 @llvm.eh.exceptioncode(token %[[pad]])
+ // ARM64: store i32 %[[code]], ptr %[[code_slot]]
+ // CHECK: %[[ret1:[^ ]*]] = load i32, ptr %[[code_slot]]
+ // CHECK: store i32 %[[ret1]], ptr %[[ret_slot]]
+diff --git a/llvm/lib/CodeGen/AsmPrinter/WinException.cpp b/llvm/lib/CodeGen/AsmPrinter/WinException.cpp
+index 6d6432b61..528897ec4 100644
+--- a/llvm/lib/CodeGen/AsmPrinter/WinException.cpp
++++ b/llvm/lib/CodeGen/AsmPrinter/WinException.cpp
+@@ -33,9 +33,10 @@
+ using namespace llvm;
+ 
+ WinException::WinException(AsmPrinter *A) : EHStreamer(A) {
+-  // MSVC's EH tables are always composed of 32-bit words.  All known 64-bit
+-  // platforms use an imagerel32 relocation to refer to symbols.
+-  useImageRel32 = (A->getDataLayout().getPointerSizeInBits() == 64);
++  // MSVC's EH tables are always composed of 32-bit words. All known
++  // architectures use an imagerel32 relocation to refer to symbols, except
++  // 32-bit x86.
++  useImageRel32 = A->TM.getTargetTriple().getArch() != Triple::x86;
+   isAArch64 = Asm->TM.getTargetTriple().isAArch64();
+   isThumb = Asm->TM.getTargetTriple().isThumb();
+ }
+diff --git a/llvm/lib/Target/ARM/ARMBaseRegisterInfo.cpp b/llvm/lib/Target/ARM/ARMBaseRegisterInfo.cpp
+index 9adf758b4..64947d294 100644
+--- a/llvm/lib/Target/ARM/ARMBaseRegisterInfo.cpp
++++ b/llvm/lib/Target/ARM/ARMBaseRegisterInfo.cpp
+@@ -418,6 +418,12 @@ bool ARMBaseRegisterInfo::hasBasePointer(const MachineFunction &MF) const {
+   const ARMFunctionInfo *AFI = MF.getInfo<ARMFunctionInfo>();
+   const ARMFrameLowering *TFI = getFrameLowering(MF);
+ 
++  // For Windows SEH, the runtime does not preserve SP or R11 for EH funclets.
++  // Fortunately, R4-R10 are always preserved.
++  // Therefore, we force these functions to set up a base pointer.
++  if (MF.hasEHFunclets())
++    return true;
++
+   // If we have stack realignment and VLAs, we have no pointer to use to
+   // access the stack. If we have stack realignment, and a large call frame,
+   // we have no place to allocate the emergency spill slot.
+@@ -491,6 +497,16 @@ ARMBaseRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
+   return ARM::SP;
+ }
+ 
++unsigned
++ARMBaseRegisterInfo::getLocalAddressRegister(const MachineFunction &MF) const {
++  const auto &MFI = MF.getFrameInfo();
++  if (!MF.hasEHFunclets() && !MFI.hasVarSizedObjects())
++    return ARM::SP;
++  else if (MF.hasEHFunclets() || hasStackRealignment(MF))
++    return getBaseRegister();
++  return getFrameRegister(MF);
++}
++
+ /// emitLoadConstPool - Emits a load from constpool to materialize the
+ /// specified immediate.
+ void ARMBaseRegisterInfo::emitLoadConstPool(
+@@ -804,6 +820,13 @@ ARMBaseRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
+ 
+   int Offset = TFI->ResolveFrameIndexReference(MF, FrameIndex, FrameReg, SPAdj);
+ 
++  if (MI.getOpcode() == TargetOpcode::LOCAL_ESCAPE) {
++    MachineOperand &FI = MI.getOperand(FIOperandNum);
++    StackOffset Offset = TFI->getNonLocalFrameIndexReference(MF, FrameIndex);
++    FI.ChangeToImmediate(Offset.getFixed());
++    return false;
++  }
++
+   // PEI::scavengeFrameVirtualRegs() cannot accurately track SPAdj because the
+   // call frame setup/destroy instructions have already been eliminated.  That
+   // means the stack pointer cannot be used to access the emergency spill slot
+diff --git a/llvm/lib/Target/ARM/ARMBaseRegisterInfo.h b/llvm/lib/Target/ARM/ARMBaseRegisterInfo.h
+index 926d702b4..fa6af9a6e 100644
+--- a/llvm/lib/Target/ARM/ARMBaseRegisterInfo.h
++++ b/llvm/lib/Target/ARM/ARMBaseRegisterInfo.h
+@@ -203,6 +203,7 @@ public:
+ 
+   // Debug information queries.
+   Register getFrameRegister(const MachineFunction &MF) const override;
++  unsigned getLocalAddressRegister(const MachineFunction &MF) const;
+   Register getBaseRegister() const { return BasePtr; }
+ 
+   /// emitLoadConstPool - Emits a load from constpool to materialize the
+diff --git a/llvm/lib/Target/ARM/ARMExpandPseudoInsts.cpp b/llvm/lib/Target/ARM/ARMExpandPseudoInsts.cpp
+index 2f9236bb9..e75486ec2 100644
+--- a/llvm/lib/Target/ARM/ARMExpandPseudoInsts.cpp
++++ b/llvm/lib/Target/ARM/ARMExpandPseudoInsts.cpp
+@@ -986,6 +986,8 @@ static MachineOperand getMovOperand(const MachineOperand &MO,
+   }
+   case MachineOperand::MO_ExternalSymbol:
+     return MachineOperand::CreateES(MO.getSymbolName(), TF);
++  case MachineOperand::MO_MCSymbol:
++    return MachineOperand::CreateMCSymbol(MO.getMCSymbol(), TF);
+   case MachineOperand::MO_JumpTableIndex:
+     return MachineOperand::CreateJTI(MO.getIndex(), TF);
+   default:
+@@ -2182,6 +2184,14 @@ bool ARMExpandPseudo::ExpandMI(MachineBasicBlock &MBB,
+       return true;
+     }
+ 
++    case ARM::CLEANUPRET:
++    case ARM::CATCHRET: {
++      unsigned RetOpcode = STI->isThumb() ? ARM::tBX_RET : ARM::BX_RET;
++      BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(RetOpcode))
++          .add(predOps(ARMCC::AL));
++      MI.eraseFromParent();
++      return true;
++    }
+     case ARM::TCRETURNdi:
+     case ARM::TCRETURNri: {
+       MachineBasicBlock::iterator MBBI = MBB.getLastNonDebugInstr();
+diff --git a/llvm/lib/Target/ARM/ARMFrameLowering.cpp b/llvm/lib/Target/ARM/ARMFrameLowering.cpp
+index 79c15c60f..98ce59778 100644
+--- a/llvm/lib/Target/ARM/ARMFrameLowering.cpp
++++ b/llvm/lib/Target/ARM/ARMFrameLowering.cpp
+@@ -485,6 +485,8 @@ static MachineBasicBlock::iterator insertSEH(MachineBasicBlock::iterator MBBI,
+     break;
+ 
+   case ARM::tBX_RET:
++  case ARM::CLEANUPRET:
++  case ARM::CATCHRET:
+   case ARM::TCRETURNri:
+     MIB = BuildMI(MF, DL, TII.get(ARM::SEH_Nop_Ret))
+               .addImm(/*Wide=*/0)
+@@ -1260,7 +1262,7 @@ void ARMFrameLowering::emitPrologue(MachineFunction &MF,
+   // will be allocated after this, so we can still use the base pointer
+   // to reference locals.
+   // FIXME: Clarify FrameSetup flags here.
+-  if (RegInfo->hasBasePointer(MF)) {
++  if (RegInfo->hasBasePointer(MF) && !MBB.isEHFuncletEntry()) {
+     if (isARM)
+       BuildMI(MBB, MBBI, dl, TII.get(ARM::MOVr), RegInfo->getBaseRegister())
+           .addReg(ARM::SP)
+@@ -1446,6 +1448,14 @@ StackOffset ARMFrameLowering::getFrameIndexReference(const MachineFunction &MF,
+   return StackOffset::getFixed(ResolveFrameIndexReference(MF, FI, FrameReg, 0));
+ }
+ 
++StackOffset
++ARMFrameLowering::getNonLocalFrameIndexReference(const MachineFunction &MF,
++                                                 int FI) const {
++  const MachineFrameInfo &MFI = MF.getFrameInfo();
++  int Offset = MFI.getObjectOffset(FI) + MFI.getStackSize();
++  return StackOffset::getFixed(Offset);
++}
++
+ int ARMFrameLowering::ResolveFrameIndexReference(const MachineFunction &MF,
+                                                  int FI, Register &FrameReg,
+                                                  int SPAdj) const {
+@@ -2106,6 +2116,8 @@ static unsigned estimateRSStackSizeLimit(MachineFunction &MF,
+     for (auto &MI : MBB) {
+       if (MI.isDebugInstr())
+         continue;
++      if (MI.getOpcode() == TargetOpcode::LOCAL_ESCAPE)
++        continue;
+       for (unsigned i = 0, e = MI.getNumOperands(); i != e; ++i) {
+         if (!MI.getOperand(i).isFI())
+           continue;
+diff --git a/llvm/lib/Target/ARM/ARMFrameLowering.h b/llvm/lib/Target/ARM/ARMFrameLowering.h
+index 3c7358d8c..9986ffd33 100644
+--- a/llvm/lib/Target/ARM/ARMFrameLowering.h
++++ b/llvm/lib/Target/ARM/ARMFrameLowering.h
+@@ -51,6 +51,8 @@ public:
+   bool canSimplifyCallFramePseudos(const MachineFunction &MF) const override;
+   StackOffset getFrameIndexReference(const MachineFunction &MF, int FI,
+                                      Register &FrameReg) const override;
++  StackOffset getNonLocalFrameIndexReference(const MachineFunction &MF,
++                                             int FI) const override;
+   int ResolveFrameIndexReference(const MachineFunction &MF, int FI,
+                                  Register &FrameReg, int SPAdj) const;
+ 
+diff --git a/llvm/lib/Target/ARM/ARMISelLowering.cpp b/llvm/lib/Target/ARM/ARMISelLowering.cpp
+index a24c677e0..38b3f0472 100644
+--- a/llvm/lib/Target/ARM/ARMISelLowering.cpp
++++ b/llvm/lib/Target/ARM/ARMISelLowering.cpp
+@@ -4158,6 +4158,29 @@ ARMTargetLowering::LowerINTRINSIC_WO_CHAIN(SDValue Op, SelectionDAG &DAG,
+   SDLoc dl(Op);
+   switch (IntNo) {
+   default: return SDValue();    // Don't custom lower most intrinsics.
++  case Intrinsic::localaddress: {
++    const MachineFunction &MF = DAG.getMachineFunction();
++    const auto *RegInfo = Subtarget->getRegisterInfo();
++    unsigned Reg = RegInfo->getLocalAddressRegister(MF);
++    return DAG.getCopyFromReg(DAG.getEntryNode(), dl, Reg,
++                              Op.getSimpleValueType());
++  }
++  case Intrinsic::eh_recoverfp: {
++    SDValue FnOp = Op.getOperand(1);
++    GlobalAddressSDNode *GSD = dyn_cast<GlobalAddressSDNode>(FnOp);
++    auto *Fn = dyn_cast_or_null<Function>(GSD ? GSD->getGlobal() : nullptr);
++    if (!Fn)
++      report_fatal_error(
++          "llvm.eh.recoverfp must take a function as the first argument");
++    const auto *RegInfo = Subtarget->getRegisterInfo();
++    Register BaseReg = RegInfo->getBaseRegister();
++    MachineFunction &MF = DAG.getMachineFunction();
++    MachineBasicBlock &MBB = *MF.begin();
++    if (!MBB.isLiveIn(BaseReg))
++      MBB.addLiveIn(BaseReg);
++    EVT PtrVT = getPointerTy(DAG.getDataLayout());
++    return DAG.getCopyFromReg(DAG.getEntryNode(), dl, BaseReg, PtrVT);
++  }
+   case Intrinsic::thread_pointer: {
+     EVT PtrVT = getPointerTy(DAG.getDataLayout());
+     return DAG.getNode(ARMISD::THREAD_POINTER, dl, PtrVT);
+diff --git a/llvm/lib/Target/ARM/ARMInstrInfo.td b/llvm/lib/Target/ARM/ARMInstrInfo.td
+index 812b57308..9de16494a 100644
+--- a/llvm/lib/Target/ARM/ARMInstrInfo.td
++++ b/llvm/lib/Target/ARM/ARMInstrInfo.td
+@@ -6078,6 +6078,17 @@ def : ARMPat<(ARMWrapperJT tjumptable:$dst),
+ 
+ // TODO: add,sub,and, 3-instr forms?
+ 
++
++// Exception Handling
++def ARMLocalRecover : SDNode<"ISD::LOCAL_RECOVER",
++                             SDTypeProfile<1, 1, [SDTCisSameAs<0, 1>,
++                                                  SDTCisInt<1>]>>;
++def : ARMPat<(ARMLocalRecover mcsym:$sym), (MOVi32imm mcsym:$sym)>,
++            Requires<[IsARM, UseMovt]>;
++def : ARMPat<(ARMLocalRecover mcsym:$sym), (LDRLIT_ga_abs mcsym:$sym)>,
++            Requires<[IsARM, DontUseMovt]>;
++
++
+ // Tail calls. These patterns also apply to Thumb mode.
+ def : Pat<(ARMtcret tcGPR:$dst, (i32 timm:$SPDiff)),
+           (TCRETURNri tcGPR:$dst, timm:$SPDiff)>;
+@@ -6532,3 +6543,19 @@ let isPseudo = 1 in {
+   let isTerminator = 1 in
+   def SEH_EpilogEnd : PseudoInst<(outs), (ins), NoItinerary, []>, Sched<[]>;
+ }
++
++// C++ Exception / SEH Pseudo Instructions
++let isTerminator = 1, isReturn = 1, isBarrier = 1, isCodeGenOnly = 1, hasNoSchedulingInfo = 1 in {
++  // rt1 ADAPTATION, not upstream's text. Upstream writes `[(cleanupret bb)]` because
++  // main declares `SDTCleanupret : SDTypeProfile<0, 1, ...>` — one operand. LLVM 18.1.8
++  // declares `cleanupret` with SDTNone, i.e. ZERO operands
++  // (TargetSelectionDAG.td:644), so the upstream spelling fails TableGen with
++  // "In CLEANUPRET: cleanupret node requires exactly 0 operands!".
++  // The operand arity change is NOT part of PR #184953 and is an undeclared
++  // dependency of it. In-tree precedent for the 18 spelling, same tree:
++  //   AArch64InstrInfo.td:4851  def CLEANUPRET : Pseudo<(outs), (ins), [(cleanupret)]>
++  //   X86InstrCompiler.td:198   def CLEANUPRET : I<..., [(cleanupret)]>
++  // CATCHRET below needs no change: 18's SDTCatchret is already SDTypeProfile<0, 2>.
++  def CLEANUPRET : PseudoInst<(outs), (ins), NoItinerary, [(cleanupret)]>, Sched<[]>;
++  def CATCHRET : PseudoInst<(outs), (ins arm_br_target:$dst, arm_br_target:$src), NoItinerary, [(catchret bb:$dst, bb:$src)]>, Sched<[]>;
++}
+diff --git a/llvm/lib/Target/ARM/ARMInstrThumb2.td b/llvm/lib/Target/ARM/ARMInstrThumb2.td
+index acd46e809..5214a89ad 100644
+--- a/llvm/lib/Target/ARM/ARMInstrThumb2.td
++++ b/llvm/lib/Target/ARM/ARMInstrThumb2.td
+@@ -4357,6 +4357,9 @@ def t2LDRLIT_ga_pcrel : PseudoInst<(outs rGPR:$dst), (ins i32imm:$addr),
+                        Requires<[IsThumb, HasV8MBaseline, DontUseMovtInPic]>;
+ }
+ 
++// Exception Handling
++def : T2Pat<(ARMLocalRecover mcsym:$sym), (t2MOVi32imm mcsym:$sym)>;
++
+ // TLS globals
+ def : Pat<(ARMWrapperPIC tglobaltlsaddr:$addr),
+           (t2LDRLIT_ga_pcrel tglobaltlsaddr:$addr)>,
+diff --git a/llvm/lib/Target/ARM/ARMMCInstLower.cpp b/llvm/lib/Target/ARM/ARMMCInstLower.cpp
+index 2c2853223..fb15ea4d6 100644
+--- a/llvm/lib/Target/ARM/ARMMCInstLower.cpp
++++ b/llvm/lib/Target/ARM/ARMMCInstLower.cpp
+@@ -103,6 +103,9 @@ bool ARMAsmPrinter::lowerOperand(const MachineOperand &MO,
+     MCOp = MCOperand::createExpr(MCSymbolRefExpr::create(
+         MO.getMBB()->getSymbol(), OutContext));
+     break;
++  case MachineOperand::MO_MCSymbol:
++    MCOp = GetSymbolRef(MO, MO.getMCSymbol());
++    break;
+   case MachineOperand::MO_GlobalAddress:
+     MCOp = GetSymbolRef(MO,
+                         GetARMGVSymbol(MO.getGlobal(), MO.getTargetFlags()));
+diff --git a/llvm/test/CodeGen/ARM/seh-except.ll b/llvm/test/CodeGen/ARM/seh-except.ll
+new file mode 100644
+index 000000000..bc42bd21b
+--- /dev/null
++++ b/llvm/test/CodeGen/ARM/seh-except.ll
+@@ -0,0 +1,481 @@
++;; rt1 REBASELINE onto LLVM 18. Two assembler-PRINTING differences from upstream's
++;; expectations, both syntax-only -- every emitted VALUE is byte-identical to what
++;; upstream's CHECKs assert, verified symbol by symbol:
++;;   1. LLVM 18 prints a symbol assignment as `.set NAME, VALUE`; main prints `NAME = VALUE`.
++;;   2. LLVM 18 parenthesises the relocation operand: `:lower16:(SYM)`; main writes `:lower16:SYM`.
++;; The SEH lowering itself is unchanged, so these are rebaselining and not a finding.
++
++; RUN: llc -mtriple=thumbv7-windows-msvc -o - %s | FileCheck %s
++
++; struct S { int x; };
++; void foo(int n);
++; 
++; void simple_except() {
++;   struct S o;
++;   __try {
++;     foo(o.x);
++;   } __except((foo(o.x), 1)) {
++;     foo(o.x);
++;   }
++; }
++; 
++; void stack_realign() {
++;   struct S __declspec(align(32)) o;
++;   __try {
++;     foo(o.x);
++;   } __except((foo(o.x), 1)) {
++;     foo(o.x);
++;   }
++; }
++; 
++; void vla_present(int n) {
++;   int vla[n];
++;   __try {
++;     foo(n);
++;   } __except((foo(n), 1)) {
++;     foo(n);
++;   }
++; }
++; 
++; void vla_and_realign(int n) {
++;   struct S __declspec(align(32)) o;
++;   int vla[n];
++;   __try {
++;     foo(o.x);
++;   } __except((foo(o.x), 1)) {
++;     foo(o.x);
++;   }
++; }
++; 
++; void stack_realign_filter() {
++;   struct S o;
++;   __try {
++;     foo(o.x);
++;   } __except(([] [[msvc::forceinline]] () {
++;                 struct S __declspec(align(32)) p;
++;                 foo(p.x);
++;               }(), foo(o.x), 1)) {
++;     foo(o.x);
++;   }
++; }
++
++%struct.S = type { i32 }
++
++; Function Attrs: nounwind
++define dso_local arm_aapcs_vfpcc void @simple_except() #0 personality ptr @__C_specific_handler {
++; CHECK-LABEL: simple_except:
++; CHECK: .seh_proc simple_except
++; CHECK: .seh_handler __C_specific_handler, %unwind, %except
++; CHECK: push {r6, lr}
++; CHECK: .seh_save_regs {r6, lr}
++; CHECK: sub sp, #8
++; CHECK: .seh_stackalloc 8
++; CHECK: .seh_endprologue
++; CHECK: mov r6, sp
++; CHECK: .set $Msimple_except$frame_escape_0, 4
++; CHECK: ldr r0, [r6, #4]
++; CHECK: bl foo
++entry:
++  %o = alloca %struct.S, align 4
++  %__exception_code = alloca i32, align 4
++  call void (...) @llvm.localescape(ptr %o)
++  call void @llvm.lifetime.start.p0(i64 4, ptr %o) #6
++  %x = getelementptr inbounds %struct.S, ptr %o, i32 0, i32 0
++  %0 = load i32, ptr %x, align 4
++  invoke arm_aapcs_vfpcc void @foo(i32 noundef %0) #7
++          to label %invoke.cont unwind label %catch.dispatch
++
++catch.dispatch:                                   ; preds = %entry
++  %1 = catchswitch within none [label %__except.ret] unwind label %ehcleanup
++
++__except.ret:                                     ; preds = %catch.dispatch
++  %2 = catchpad within %1 [ptr @"?filt$0@0@simple_except@@"]
++  catchret from %2 to label %__except
++
++__except:                                         ; preds = %__except.ret
++; CHECK: ldr r0, [r6, #4]
++; CHECK: bl foo
++  %3 = call i32 @llvm.eh.exceptioncode(token %2)
++  store i32 %3, ptr %__exception_code, align 4
++  %x1 = getelementptr inbounds %struct.S, ptr %o, i32 0, i32 0
++  %4 = load i32, ptr %x1, align 4
++  call arm_aapcs_vfpcc void @foo(i32 noundef %4)
++  br label %__try.cont
++
++__try.cont:                                       ; preds = %__except, %invoke.cont
++  call void @llvm.lifetime.end.p0(i64 4, ptr %o) #6
++  ret void
++
++invoke.cont:                                      ; preds = %entry
++  br label %__try.cont
++
++ehcleanup:                                        ; preds = %catch.dispatch
++  %5 = cleanuppad within none []
++  call void @llvm.lifetime.end.p0(i64 4, ptr %o) #6
++  cleanupret from %5 unwind to caller
++}
++
++; Function Attrs: nocallback nofree nosync nounwind willreturn memory(argmem: readwrite)
++declare void @llvm.lifetime.start.p0(i64 immarg, ptr nocapture)
++
++; Function Attrs: nounwind
++define internal arm_aapcs_vfpcc i32 @"?filt$0@0@simple_except@@"(ptr noundef %exception_pointers, ptr noundef %frame_pointer) #0 {
++; CHECK-LABEL: "?filt$0@0@simple_except@@":
++; CHECK: push.w {r11, lr}
++; CHECK: sub sp, #16
++; CHECK: movw r[[OFFSET:[0-9]+]], :lower16:{{.*}}frame_escape_0
++; CHECK-NEXT: movt r[[OFFSET]], :upper16:{{.*}}frame_escape_0
++; CHECK: ldr r0, [r6, r[[OFFSET]]]
++; CHECK: bl foo
++entry:
++  %frame_pointer.addr = alloca ptr, align 4
++  %exception_pointers.addr = alloca ptr, align 4
++  %0 = call ptr @llvm.eh.recoverfp(ptr @simple_except, ptr %frame_pointer)
++  %o = call ptr @llvm.localrecover(ptr @simple_except, ptr %0, i32 0)
++  %__exception_code = alloca i32, align 4
++  store ptr %frame_pointer, ptr %frame_pointer.addr, align 4
++  store ptr %exception_pointers, ptr %exception_pointers.addr, align 4
++  %1 = getelementptr inbounds { ptr, ptr }, ptr %exception_pointers, i32 0, i32 0
++  %2 = load ptr, ptr %1, align 4
++  %3 = load i32, ptr %2, align 4
++  store i32 %3, ptr %__exception_code, align 4
++  %x = getelementptr inbounds %struct.S, ptr %o, i32 0, i32 0
++  %4 = load i32, ptr %x, align 4
++  call arm_aapcs_vfpcc void @foo(i32 noundef %4)
++  ret i32 1
++}
++
++declare ptr @llvm.eh.recoverfp(ptr, ptr)
++declare ptr @llvm.localrecover(ptr, ptr, i32 immarg)
++declare dso_local arm_aapcs_vfpcc void @foo(i32 noundef)
++
++declare dso_local arm_aapcs_vfpcc i32 @__C_specific_handler(...)
++
++; Function Attrs: nounwind memory(none)
++declare i32 @llvm.eh.exceptioncode(token)
++
++; Function Attrs: nocallback nofree nosync nounwind willreturn memory(argmem: readwrite)
++declare void @llvm.lifetime.end.p0(i64 immarg, ptr nocapture)
++
++; Function Attrs: nocallback nofree nosync nounwind willreturn
++declare void @llvm.localescape(...)
++
++; Function Attrs: nounwind
++define dso_local arm_aapcs_vfpcc void @stack_realign() #0 personality ptr @__C_specific_handler {
++; CHECK-LABEL: stack_realign:
++; CHECK: push {r4, r6}
++; CHECK: push.w {r11, lr}
++; CHECK: mov r11, sp
++; CHECK: sub sp, #48
++; CHECK: bfc {{r[0-9]+}}, #0, #5
++; CHECK: mov r6, sp
++; CHECK: .set $Mstack_realign$frame_escape_0, 32
++; CHECK: ldr r0, [sp, #32]
++; CHECK: bl foo
++entry:
++  %o = alloca %struct.S, align 32
++  %__exception_code = alloca i32, align 4
++  call void (...) @llvm.localescape(ptr %o)
++  call void @llvm.lifetime.start.p0(i64 4, ptr %o) #6
++  %x = getelementptr inbounds %struct.S, ptr %o, i32 0, i32 0
++  %0 = load i32, ptr %x, align 32
++  invoke arm_aapcs_vfpcc void @foo(i32 noundef %0) #7
++          to label %invoke.cont unwind label %catch.dispatch
++
++catch.dispatch:                                   ; preds = %entry
++  %1 = catchswitch within none [label %__except.ret] unwind label %ehcleanup
++
++__except.ret:                                     ; preds = %catch.dispatch
++  %2 = catchpad within %1 [ptr @"?filt$0@0@stack_realign@@"]
++  catchret from %2 to label %__except
++
++__except:                                         ; preds = %__except.ret
++; CHECK: ldr r0, [sp, #32]
++; CHECK: bl foo
++  %3 = call i32 @llvm.eh.exceptioncode(token %2)
++  store i32 %3, ptr %__exception_code, align 4
++  %x1 = getelementptr inbounds %struct.S, ptr %o, i32 0, i32 0
++  %4 = load i32, ptr %x1, align 32
++  call arm_aapcs_vfpcc void @foo(i32 noundef %4)
++  br label %__try.cont
++
++__try.cont:                                       ; preds = %__except, %invoke.cont
++  call void @llvm.lifetime.end.p0(i64 4, ptr %o) #6
++  ret void
++
++invoke.cont:                                      ; preds = %entry
++  br label %__try.cont
++
++ehcleanup:                                        ; preds = %catch.dispatch
++  %5 = cleanuppad within none []
++  call void @llvm.lifetime.end.p0(i64 4, ptr %o) #6
++  cleanupret from %5 unwind to caller
++}
++
++; Function Attrs: nounwind
++define internal arm_aapcs_vfpcc i32 @"?filt$0@0@stack_realign@@"(ptr noundef %exception_pointers, ptr noundef %frame_pointer) #0 {
++; CHECK-LABEL: "?filt$0@0@stack_realign@@":
++; CHECK: movw r[[OFFSET:[0-9]+]], :lower16:{{.*}}frame_escape_0
++; CHECK-NEXT: movt r[[OFFSET]], :upper16:{{.*}}frame_escape_0
++; CHECK: ldr r0, [r6, r[[OFFSET]]]
++; CHECK: bl foo
++entry:
++  %frame_pointer.addr = alloca ptr, align 4
++  %exception_pointers.addr = alloca ptr, align 4
++  %0 = call ptr @llvm.eh.recoverfp(ptr @stack_realign, ptr %frame_pointer)
++  %o = call ptr @llvm.localrecover(ptr @stack_realign, ptr %0, i32 0)
++  %__exception_code = alloca i32, align 4
++  store ptr %frame_pointer, ptr %frame_pointer.addr, align 4
++  store ptr %exception_pointers, ptr %exception_pointers.addr, align 4
++  %1 = getelementptr inbounds { ptr, ptr }, ptr %exception_pointers, i32 0, i32 0
++  %2 = load ptr, ptr %1, align 4
++  %3 = load i32, ptr %2, align 4
++  store i32 %3, ptr %__exception_code, align 4
++  %x = getelementptr inbounds %struct.S, ptr %o, i32 0, i32 0
++  %4 = load i32, ptr %x, align 32
++  call arm_aapcs_vfpcc void @foo(i32 noundef %4)
++  ret i32 1
++}
++
++; Function Attrs: nounwind
++define dso_local arm_aapcs_vfpcc void @vla_present(i32 noundef %n) #0 personality ptr @__C_specific_handler {
++; CHECK-LABEL: vla_present:
++; CHECK: push {r6, lr}
++; CHECK: sub sp, #16
++; CHECK: mov r6, sp
++; CHECK: .set $Mvla_present$frame_escape_0, 12
++; CHECK: bl foo
++entry:
++  %n.addr = alloca i32, align 4
++  %saved_stack = alloca ptr, align 4
++  %__vla_expr0 = alloca i32, align 4
++  %__exception_code = alloca i32, align 4
++  call void (...) @llvm.localescape(ptr %n.addr)
++  store i32 %n, ptr %n.addr, align 4
++  %0 = load i32, ptr %n.addr, align 4
++  %1 = call ptr @llvm.stacksave.p0()
++  store ptr %1, ptr %saved_stack, align 4
++  %vla = alloca i32, i32 %0, align 4
++  store i32 %0, ptr %__vla_expr0, align 4
++  %2 = load i32, ptr %n.addr, align 4
++  invoke arm_aapcs_vfpcc void @foo(i32 noundef %2) #7
++          to label %invoke.cont unwind label %catch.dispatch
++
++catch.dispatch:                                   ; preds = %entry
++  %3 = catchswitch within none [label %__except.ret] unwind to caller
++
++__except.ret:                                     ; preds = %catch.dispatch
++  %4 = catchpad within %3 [ptr @"?filt$0@0@vla_present@@"]
++  catchret from %4 to label %__except
++
++__except:                                         ; preds = %__except.ret
++; CHECK: ldr r0, [r6, #12]
++; CHECK: bl foo
++  %5 = call i32 @llvm.eh.exceptioncode(token %4)
++  store i32 %5, ptr %__exception_code, align 4
++  %6 = load i32, ptr %n.addr, align 4
++  call arm_aapcs_vfpcc void @foo(i32 noundef %6)
++  br label %__try.cont
++
++__try.cont:                                       ; preds = %__except, %invoke.cont
++  %7 = load ptr, ptr %saved_stack, align 4
++  call void @llvm.stackrestore.p0(ptr %7)
++  ret void
++
++invoke.cont:                                      ; preds = %entry
++  br label %__try.cont
++}
++
++declare ptr @llvm.stacksave.p0() #5
++
++; Function Attrs: nounwind
++define internal arm_aapcs_vfpcc i32 @"?filt$0@0@vla_present@@"(ptr noundef %exception_pointers, ptr noundef %frame_pointer) #0 {
++; CHECK-LABEL: "?filt$0@0@vla_present@@":
++; CHECK: movw r[[OFFSET:[0-9]+]], :lower16:{{.*}}frame_escape_0
++; CHECK-NEXT: movt r[[OFFSET]], :upper16:{{.*}}frame_escape_0
++; CHECK: ldr r0, [r6, r[[OFFSET]]]
++; CHECK: bl foo
++entry:
++  %frame_pointer.addr = alloca ptr, align 4
++  %exception_pointers.addr = alloca ptr, align 4
++  %0 = call ptr @llvm.eh.recoverfp(ptr @vla_present, ptr %frame_pointer)
++  %n.addr = call ptr @llvm.localrecover(ptr @vla_present, ptr %0, i32 0)
++  %__exception_code = alloca i32, align 4
++  store ptr %frame_pointer, ptr %frame_pointer.addr, align 4
++  store ptr %exception_pointers, ptr %exception_pointers.addr, align 4
++  %1 = getelementptr inbounds { ptr, ptr }, ptr %exception_pointers, i32 0, i32 0
++  %2 = load ptr, ptr %1, align 4
++  %3 = load i32, ptr %2, align 4
++  store i32 %3, ptr %__exception_code, align 4
++  %4 = load i32, ptr %n.addr, align 4
++  call arm_aapcs_vfpcc void @foo(i32 noundef %4)
++  ret i32 1
++}
++
++declare void @llvm.stackrestore.p0(ptr) #5
++
++; Function Attrs: nounwind
++define dso_local arm_aapcs_vfpcc void @vla_and_realign(i32 noundef %n) #0 personality ptr @__C_specific_handler {
++; CHECK-LABEL: vla_and_realign:
++; CHECK: push {r4, r6}
++; CHECK: push.w {r11, lr}
++; CHECK: mov r11, sp
++; CHECK: sub sp, #48
++; CHECK: bfc {{r[0-9]+}}, #0, #5
++; CHECK: mov r6, sp
++; CHECK: .set $Mvla_and_realign$frame_escape_0, 32
++; CHECK: ldr r0, [sp, #32]
++; CHECK: bl foo
++entry:
++  %n.addr = alloca i32, align 4
++  %o = alloca %struct.S, align 32
++  %saved_stack = alloca ptr, align 4
++  %__vla_expr0 = alloca i32, align 4
++  %__exception_code = alloca i32, align 4
++  call void (...) @llvm.localescape(ptr %o)
++  store i32 %n, ptr %n.addr, align 4
++  call void @llvm.lifetime.start.p0(i64 4, ptr %o) #6
++  %0 = load i32, ptr %n.addr, align 4
++  %1 = call ptr @llvm.stacksave.p0()
++  store ptr %1, ptr %saved_stack, align 4
++  %vla = alloca i32, i32 %0, align 4
++  store i32 %0, ptr %__vla_expr0, align 4
++  %x = getelementptr inbounds %struct.S, ptr %o, i32 0, i32 0
++  %2 = load i32, ptr %x, align 32
++  invoke arm_aapcs_vfpcc void @foo(i32 noundef %2) #7
++          to label %invoke.cont unwind label %catch.dispatch
++
++catch.dispatch:                                   ; preds = %entry
++  %3 = catchswitch within none [label %__except.ret] unwind label %ehcleanup
++
++__except.ret:                                     ; preds = %catch.dispatch
++  %4 = catchpad within %3 [ptr @"?filt$0@0@vla_and_realign@@"]
++  catchret from %4 to label %__except
++
++__except:                                         ; preds = %__except.ret
++; CHECK: ldr r0, [sp, #32]
++; CHECK: bl foo
++  %5 = call i32 @llvm.eh.exceptioncode(token %4)
++  store i32 %5, ptr %__exception_code, align 4
++  %x1 = getelementptr inbounds %struct.S, ptr %o, i32 0, i32 0
++  %6 = load i32, ptr %x1, align 32
++  call arm_aapcs_vfpcc void @foo(i32 noundef %6)
++  br label %__try.cont
++
++__try.cont:                                       ; preds = %__except, %invoke.cont
++  %7 = load ptr, ptr %saved_stack, align 4
++  call void @llvm.stackrestore.p0(ptr %7)
++  call void @llvm.lifetime.end.p0(i64 4, ptr %o) #6
++  ret void
++
++invoke.cont:                                      ; preds = %entry
++  br label %__try.cont
++
++ehcleanup:                                        ; preds = %catch.dispatch
++  %8 = cleanuppad within none []
++  call void @llvm.lifetime.end.p0(i64 4, ptr %o) #6
++  cleanupret from %8 unwind to caller
++}
++
++; Function Attrs: nounwind
++define internal arm_aapcs_vfpcc i32 @"?filt$0@0@vla_and_realign@@"(ptr noundef %exception_pointers, ptr noundef %frame_pointer) #0 {
++; CHECK-LABEL: "?filt$0@0@vla_and_realign@@":
++; CHECK: movw r[[OFFSET:[0-9]+]], :lower16:{{.*}}frame_escape_0
++; CHECK-NEXT: movt r[[OFFSET]], :upper16:{{.*}}frame_escape_0
++; CHECK: ldr r0, [r6, r[[OFFSET]]]
++; CHECK: bl foo
++entry:
++  %frame_pointer.addr = alloca ptr, align 4
++  %exception_pointers.addr = alloca ptr, align 4
++  %0 = call ptr @llvm.eh.recoverfp(ptr @vla_and_realign, ptr %frame_pointer)
++  %o = call ptr @llvm.localrecover(ptr @vla_and_realign, ptr %0, i32 0)
++  %__exception_code = alloca i32, align 4
++  store ptr %frame_pointer, ptr %frame_pointer.addr, align 4
++  store ptr %exception_pointers, ptr %exception_pointers.addr, align 4
++  %1 = getelementptr inbounds { ptr, ptr }, ptr %exception_pointers, i32 0, i32 0
++  %2 = load ptr, ptr %1, align 4
++  %3 = load i32, ptr %2, align 4
++  store i32 %3, ptr %__exception_code, align 4
++  %x = getelementptr inbounds %struct.S, ptr %o, i32 0, i32 0
++  %4 = load i32, ptr %x, align 32
++  call arm_aapcs_vfpcc void @foo(i32 noundef %4)
++  ret i32 1
++}
++
++%class.anon = type { i8 }
++
++define void @stack_realign_filter() #0 personality ptr @__C_specific_handler {
++; CHECK-LABEL: stack_realign_filter:
++; CHECK: push {r6, lr}
++; CHECK: mov r6, sp
++; CHECK: .set $Mstack_realign_filter$frame_escape_0, 4
++; CHECK: bl foo
++entry:
++  %o = alloca %struct.S, align 4
++  %__exception_code = alloca i32, align 4
++  call void (...) @llvm.localescape(ptr %o)
++  %x = getelementptr inbounds %struct.S, ptr %o, i32 0, i32 0
++  %0 = load i32, ptr %x, align 4
++  invoke void @foo(i32 noundef %0)
++          to label %invoke.cont unwind label %catch.dispatch
++
++catch.dispatch:                                   ; preds = %entry
++  %1 = catchswitch within none [label %__except.ret] unwind to caller
++
++__except.ret:                                     ; preds = %catch.dispatch
++  %2 = catchpad within %1 [ptr @"?filt$0@0@stack_realign_filter@@"]
++  catchret from %2 to label %__except
++
++__except:                                         ; preds = %__except.ret
++; CHECK: ldr r0, [r6, #4]
++; CHECK: bl foo
++  %3 = call i32 @llvm.eh.exceptioncode(token %2)
++  store i32 %3, ptr %__exception_code, align 4
++  %x1 = getelementptr inbounds %struct.S, ptr %o, i32 0, i32 0
++  %4 = load i32, ptr %x1, align 4
++  call void @foo(i32 noundef %4)
++  br label %__try.cont
++
++__try.cont:                                       ; preds = %__except, %invoke.cont
++  ret void
++
++invoke.cont:                                      ; preds = %entry
++  br label %__try.cont
++}
++
++define internal arm_aapcs_vfpcc i32 @"?filt$0@0@stack_realign_filter@@"(ptr noundef %exception_pointers, ptr noundef %frame_pointer) #0 {
++; CHECK-LABEL: "?filt$0@0@stack_realign_filter@@":
++; CHECK: push.w {r11, lr}
++; CHECK: mov r11, sp
++; CHECK: bfc r4, #0, #5
++; CHECK-NOT: mov r6, sp
++; CHECK: ldr r0, [sp, #{{[0-9]+}}]
++; CHECK-NEXT: bl foo
++; CHECK: ldr r0, [r6, r{{.*}}]
++; CHECK-NEXT: bl foo
++entry:
++  %this.addr.i = alloca ptr, align 4
++  %p.i = alloca %struct.S, align 32
++  %frame_pointer.addr = alloca ptr, align 4
++  %exception_pointers.addr = alloca ptr, align 4
++  %0 = call ptr @llvm.eh.recoverfp(ptr @stack_realign_filter, ptr %frame_pointer)
++  %o = call ptr @llvm.localrecover(ptr @stack_realign_filter, ptr %0, i32 0)
++  %__exception_code = alloca i32, align 4
++  %ref.tmp = alloca %class.anon, align 1
++  store ptr %frame_pointer, ptr %frame_pointer.addr, align 4
++  store ptr %exception_pointers, ptr %exception_pointers.addr, align 4
++  %1 = getelementptr inbounds { ptr, ptr }, ptr %exception_pointers, i32 0, i32 0
++  %2 = load ptr, ptr %1, align 4
++  %3 = load i32, ptr %2, align 4
++  store i32 %3, ptr %__exception_code, align 4
++  store ptr %ref.tmp, ptr %this.addr.i, align 4
++  %this1.i = load ptr, ptr %this.addr.i, align 4
++  %4 = load i32, ptr %p.i, align 32
++  call void @foo(i32 noundef %4)
++  %x = getelementptr inbounds %struct.S, ptr %o, i32 0, i32 0
++  %5 = load i32, ptr %x, align 4
++  call void @foo(i32 noundef %5)
++  ret i32 1
++}
++
++attributes #0 = { noinline optnone }
+diff --git a/llvm/test/CodeGen/ARM/seh-finally.ll b/llvm/test/CodeGen/ARM/seh-finally.ll
+new file mode 100644
+index 000000000..cce295ed3
+--- /dev/null
++++ b/llvm/test/CodeGen/ARM/seh-finally.ll
+@@ -0,0 +1,262 @@
++;; rt1 REBASELINE onto LLVM 18. Two assembler-PRINTING differences from upstream's
++;; expectations, both syntax-only -- every emitted VALUE is byte-identical to what
++;; upstream's CHECKs assert, verified symbol by symbol:
++;;   1. LLVM 18 prints a symbol assignment as `.set NAME, VALUE`; main prints `NAME = VALUE`.
++;;   2. LLVM 18 parenthesises the relocation operand: `:lower16:(SYM)`; main writes `:lower16:SYM`.
++;; The SEH lowering itself is unchanged, so these are rebaselining and not a finding.
++
++; RUN: llc -mtriple thumbv7-windows-msvc -o - %s | FileCheck %s
++
++; struct S { int x; };
++; void foo(int n);
++; void foo(struct S o);
++; void simple_seh() {
++;   struct S o;
++; 
++;   __try { foo(o.x); }
++;   __finally { foo(o.x); }
++; }
++; void stack_realign() {
++;   struct S __declspec(align(32)) o;
++; 
++;   __try { foo(o.x); }
++;   __finally { foo(o.x); }
++; }
++; void vla_present(int n) {
++;   int vla[n];
++; 
++;   __try { foo(n); }
++;   __finally { foo(n); }
++; }
++; void vla_and_realign(int n) {
++;   struct S __declspec(align(32)) o;
++;   int vla[n];
++; 
++;   __try { foo(o.x); }
++;   __finally { foo(o.x); }
++; }
++
++%struct.S = type { i32 }
++
++; Test simple SEH (__try/__finally).
++define arm_aapcs_vfpcc void @simple_seh() #0 personality ptr @__C_specific_handler {
++entry:
++; CHECK-LABEL: simple_seh:
++; CHECK: mov r6, sp
++; CHECK: .set $Msimple_seh$frame_escape_0, 4
++; CHECK: ldr r0, [r6, #4]
++; CHECK: bl foo
++
++  %o = alloca %struct.S, align 4
++  call void (...) @llvm.localescape(ptr %o)
++  %x = getelementptr inbounds %struct.S, ptr %o, i32 0, i32 0
++  %0 = load i32, ptr %x, align 4
++  invoke arm_aapcs_vfpcc void @foo(i32 noundef %0) #5
++          to label %invoke.cont unwind label %ehcleanup
++
++invoke.cont:                                      ; preds = %entry
++; CHECK: movs r0, #0
++; CHECK: mov r1, r6
++; CHECK: bl "?fin$0@0@simple_seh@@"
++  %1 = call ptr @llvm.localaddress()
++  call arm_aapcs_vfpcc void @"?fin$0@0@simple_seh@@"(i8 noundef zeroext 0, ptr noundef %1)
++  ret void
++
++ehcleanup:                                        ; preds = %entry
++; CHECK-LABEL: "?dtor$2@?0?simple_seh@4HA":
++; CHECK: movs r0, #1
++; CHECK: mov r1, r6
++; CHECK: bl "?fin$0@0@simple_seh@@"
++  %2 = cleanuppad within none []
++  %3 = call ptr @llvm.localaddress()
++  call arm_aapcs_vfpcc void @"?fin$0@0@simple_seh@@"(i8 noundef zeroext 1, ptr noundef %3) [ "funclet"(token %2) ]
++  cleanupret from %2 unwind to caller
++}
++
++define arm_aapcs_vfpcc void @"?fin$0@0@simple_seh@@"(i8 noundef zeroext %abnormal_termination, ptr noundef %frame_pointer) #1 {
++entry:
++; CHECK-LABEL: "?fin$0@0@simple_seh@@":
++; CHECK: movw r0, :lower16:($Msimple_seh$frame_escape_0)
++; CHECK: movt r0, :upper16:($Msimple_seh$frame_escape_0)
++; CHECK: ldr r0, [r1, r0]
++; CHECK: bl foo
++
++  %o = call ptr @llvm.localrecover(ptr @simple_seh, ptr %frame_pointer, i32 0)
++  %x = getelementptr inbounds %struct.S, ptr %o, i32 0, i32 0
++  %0 = load i32, ptr %x, align 4
++  call arm_aapcs_vfpcc void @foo(i32 noundef %0)
++  ret void
++}
++
++; Test SEH when stack realignment is needed in case highly aligned stack objects are present.
++define arm_aapcs_vfpcc void @stack_realign() #0 personality ptr @__C_specific_handler {
++entry:
++; CHECK-LABEL: stack_realign:
++; CHECK: bfc r4, #0, #5
++; CHECK: mov sp, r4
++; CHECK: mov r6, sp
++; CHECK: .set $Mstack_realign$frame_escape_0, 0
++; CHECK: ldr r0, [sp]
++; CHECK: bl foo
++
++  %o = alloca %struct.S, align 32
++  call void (...) @llvm.localescape(ptr %o)
++  %x = getelementptr inbounds %struct.S, ptr %o, i32 0, i32 0
++  %0 = load i32, ptr %x, align 32
++  invoke arm_aapcs_vfpcc void @foo(i32 noundef %0) #5
++          to label %invoke.cont unwind label %ehcleanup
++
++invoke.cont:                                      ; preds = %entry
++; CHECK: movs r0, #0
++; CHECK: mov r1, r6
++; CHECK: bl "?fin$0@0@stack_realign@@"
++  %1 = call ptr @llvm.localaddress()
++  call arm_aapcs_vfpcc void @"?fin$0@0@stack_realign@@"(i8 noundef zeroext 0, ptr noundef %1)
++  ret void
++
++ehcleanup:                                        ; preds = %entry
++; CHECK-LABEL: "?dtor$2@?0?stack_realign@4HA":
++; CHECK: movs r0, #1
++; CHECK: mov r1, r6
++; CHECK: bl "?fin$0@0@stack_realign@@"
++  %2 = cleanuppad within none []
++  %3 = call ptr @llvm.localaddress()
++  call arm_aapcs_vfpcc void @"?fin$0@0@stack_realign@@"(i8 noundef zeroext 1, ptr noundef %3) [ "funclet"(token %2) ]
++  cleanupret from %2 unwind to caller
++}
++
++define arm_aapcs_vfpcc void @"?fin$0@0@stack_realign@@"(i8 noundef zeroext %abnormal_termination, ptr noundef %frame_pointer) #1 {
++entry:
++; CHECK-LABEL: "?fin$0@0@stack_realign@@":
++; CHECK: movw r0, :lower16:($Mstack_realign$frame_escape_0)
++; CHECK: movt r0, :upper16:($Mstack_realign$frame_escape_0)
++; CHECK: ldr r0, [r1, r0]
++; CHECK: bl foo
++
++  %o = call ptr @llvm.localrecover(ptr @stack_realign, ptr %frame_pointer, i32 0)
++  %x = getelementptr inbounds %struct.S, ptr %o, i32 0, i32 0
++  %0 = load i32, ptr %x, align 32
++  call arm_aapcs_vfpcc void @foo(i32 noundef %0)
++  ret void
++}
++
++; Test SEH when variable size objects are present on the stack. Note: Escaped vla's are current not supported by SEH.
++define arm_aapcs_vfpcc void @vla_present(i32 noundef %n) #0 personality ptr @__C_specific_handler {
++entry:
++; CHECK-LABEL: vla_present:
++; CHECK: mov r6, sp
++; CHECK: .set $Mvla_present$frame_escape_0, 12
++; CHECK: bl foo
++
++  %n.addr = alloca i32, align 4
++  %saved_stack = alloca ptr, align 4
++  %__vla_expr0 = alloca i32, align 4
++  call void (...) @llvm.localescape(ptr %n.addr)
++  store i32 %n, ptr %n.addr, align 4
++  %0 = load i32, ptr %n.addr, align 4
++  %1 = call ptr @llvm.stacksave.p0()
++  store ptr %1, ptr %saved_stack, align 4
++  %vla = alloca i32, i32 %0, align 4
++  store i32 %0, ptr %__vla_expr0, align 4
++  %2 = load i32, ptr %n.addr, align 4
++  invoke arm_aapcs_vfpcc void @foo(i32 noundef %2) #5
++          to label %invoke.cont unwind label %ehcleanup
++
++invoke.cont:                                      ; preds = %entry
++; CHECK: movs r0, #0
++; CHECK: mov r1, r6
++; CHECK: bl "?fin$0@0@vla_present@@"
++  %3 = call ptr @llvm.localaddress()
++  call arm_aapcs_vfpcc void @"?fin$0@0@vla_present@@"(i8 noundef zeroext 0, ptr noundef %3)
++  %4 = load ptr, ptr %saved_stack, align 4
++  call void @llvm.stackrestore.p0(ptr %4)
++  ret void
++
++ehcleanup:                                        ; preds = %entry
++; CHECK-LABEL: "?dtor$2@?0?vla_present@4HA":
++; CHECK: movs r0, #1
++; CHECK: mov r1, r6
++; CHECK: bl "?fin$0@0@vla_present@@"
++  %5 = cleanuppad within none []
++  %6 = call ptr @llvm.localaddress()
++  call arm_aapcs_vfpcc void @"?fin$0@0@vla_present@@"(i8 noundef zeroext 1, ptr noundef %6) [ "funclet"(token %5) ]
++  cleanupret from %5 unwind to caller
++}
++
++define arm_aapcs_vfpcc void @"?fin$0@0@vla_present@@"(i8 noundef zeroext %abnormal_termination, ptr noundef %frame_pointer) #1 {
++entry:
++; CHECK-LABEL: "?fin$0@0@vla_present@@":
++; CHECK: movw r0, :lower16:($Mvla_present$frame_escape_0)
++; CHECK: movt r0, :upper16:($Mvla_present$frame_escape_0)
++; CHECK: ldr r0, [r1, r0]
++; CHECK: bl foo
++
++  %n.addr = call ptr @llvm.localrecover(ptr @vla_present, ptr %frame_pointer, i32 0)
++  %0 = load i32, ptr %n.addr, align 4
++  call arm_aapcs_vfpcc void @foo(i32 noundef %0)
++  ret void
++}
++
++; Test when both vla's and highly aligned objects are present on stack.
++define arm_aapcs_vfpcc void @vla_and_realign(i32 noundef %n) #0 personality ptr @__C_specific_handler {
++entry:
++; CHECK-LABEL: vla_and_realign:
++; CHECK: bfc r4, #0, #5
++; CHECK: mov sp, r4
++; CHECK: mov r6, sp
++; CHECK: .set $Mvla_and_realign$frame_escape_0, 0
++; CHECK: bl foo
++
++  %o = alloca %struct.S, align 32
++  call void (...) @llvm.localescape(ptr %o)
++  %0 = call ptr @llvm.stacksave.p0()
++  %x = getelementptr inbounds %struct.S, ptr %o, i32 0, i32 0
++  %1 = load i32, ptr %x, align 32
++  invoke arm_aapcs_vfpcc void @foo(i32 noundef %1) #5
++          to label %invoke.cont unwind label %ehcleanup
++
++invoke.cont:                                      ; preds = %entry
++; CHECK: movs r0, #0
++; CHECK: mov r1, r6
++; CHECK: bl "?fin$0@0@vla_and_realign@@"
++  %2 = call ptr @llvm.localaddress()
++  call arm_aapcs_vfpcc void @"?fin$0@0@vla_and_realign@@"(i8 noundef zeroext 0, ptr noundef %2)
++  call void @llvm.stackrestore.p0(ptr %0)
++  ret void
++
++ehcleanup:                                        ; preds = %entry
++; CHECK-LABEL: "?dtor$2@?0?vla_and_realign@4HA":
++; CHECK: movs r0, #1
++; CHECK: mov r1, r6
++; CHECK: bl "?fin$0@0@vla_and_realign@@"
++  %3 = cleanuppad within none []
++  %4 = call ptr @llvm.localaddress()
++  call arm_aapcs_vfpcc void @"?fin$0@0@vla_and_realign@@"(i8 noundef zeroext 1, ptr noundef %4) [ "funclet"(token %3) ]
++  cleanupret from %3 unwind to caller
++}
++
++define arm_aapcs_vfpcc void @"?fin$0@0@vla_and_realign@@"(i8 noundef zeroext %abnormal_termination, ptr noundef %frame_pointer) #1 {
++entry:
++; CHECK-LABEL: "?fin$0@0@vla_and_realign@@":
++; CHECK: movw r0, :lower16:($Mvla_and_realign$frame_escape_0)
++; CHECK: movt r0, :upper16:($Mvla_and_realign$frame_escape_0)
++; CHECK: ldr r0, [r1, r0]
++; CHECK: bl foo
++
++  %o = call ptr @llvm.localrecover(ptr @vla_and_realign, ptr %frame_pointer, i32 0)
++  %x = getelementptr inbounds %struct.S, ptr %o, i32 0, i32 0
++  %0 = load i32, ptr %x, align 32
++  call arm_aapcs_vfpcc void @foo(i32 noundef %0)
++  ret void
++}
++
++declare arm_aapcs_vfpcc void @foo(i32 noundef)
++declare void @llvm.stackrestore.p0(ptr)
++declare ptr @llvm.stacksave.p0()
++declare ptr @llvm.localrecover(ptr, ptr, i32 immarg)
++declare ptr @llvm.localaddress()
++declare void @llvm.localescape(...)
++declare i32 @__C_specific_handler(...)
++
++attributes #0 = { noinline optnone }
++attributes #1 = { noinline }
+diff --git a/llvm/test/CodeGen/ARM/wineh-dtor.ll b/llvm/test/CodeGen/ARM/wineh-dtor.ll
+new file mode 100644
+index 000000000..f06aa2c99
+--- /dev/null
++++ b/llvm/test/CodeGen/ARM/wineh-dtor.ll
+@@ -0,0 +1,61 @@
++; RUN: llc -O2 -mtriple=thumbv7-pc-windows-msvc < %s | FileCheck %s
++
++; C++ source:
++; struct X { int x[100]; };
++; void g(int*, int*) noexcept;
++; void f(X x, void (*a)()) {
++;     alignas(64) int aligned;
++;     struct A {
++;         X &x;
++;         int &aligned;
++;         ~A() {g(&x.x[11], &aligned);}
++;     } obj = {x, aligned};
++;     a();
++; }
++
++; Check that the changes in PR #184953 forcing r6 indexing in SEH funclets does not affect C++ EH.
++
++%struct.X = type { [100 x i32] }
++
++define dso_local arm_aapcs_vfpcc void @f(ptr noundef byval(%struct.X) align 4 %0, ptr noundef %1) personality ptr @__CxxFrameHandler3 {
++entry:
++; CHECK-LABEL: f:
++; CHECK: .seh_proc f
++; CHECK: .seh_handler __CxxFrameHandler3, %unwind, %except
++; CHECK: push.w {r11, lr}
++; CHECK: mov r11, sp
++; CHECK: .seh_save_sp r11
++; CHECK: .seh_endprologue
++; CHECK: bfc [[REG1:r[0-9]+]], #0, #6
++; CHECK: mov sp, [[REG1]]
++
++  %aligned = alloca i32, align 64
++  invoke arm_aapcs_vfpcc void %1()
++          to label %invoke.cont unwind label %ehcleanup
++
++invoke.cont:                                      ; preds = %entry
++  %gep.x = getelementptr inbounds i8, ptr %0, i32 44
++  call arm_aapcs_vfpcc void @g(ptr noundef nonnull %gep.x, ptr noundef nonnull %aligned)
++  ret void
++
++ehcleanup:                                        ; preds = %entry
++  %cp = cleanuppad within none []
++; CHECK: .seh_proc {{.*}}dtor{{.*}}
++; CHECK: push.w {r11, lr}
++; CHECK: mov r11, sp
++; CHECK: .seh_save_sp r11
++; CHECK: .seh_endprologue
++; CHECK: bfc [[REG2:r[0-9]+]], #0, #6
++; CHECK: mov sp, [[REG2]]
++; CHECK: add.w r0, r11, #{{[0-9]+}}
++; CHECK: adds r0, #44
++; CHECK: bl g
++
++  %gep.unwind = getelementptr inbounds i8, ptr %0, i32 44
++  call arm_aapcs_vfpcc void @g(ptr noundef nonnull %gep.unwind, ptr noundef nonnull %aligned) [ "funclet"(token %cp) ]
++  cleanupret from %cp unwind to caller
++}
++
++declare dso_local arm_aapcs_vfpcc i32 @__CxxFrameHandler3(...)
++
++declare dso_local arm_aapcs_vfpcc void @g(ptr noundef, ptr noundef)
+diff --git a/llvm/test/CodeGen/ARM/wineh-try-catch-stack-args.ll b/llvm/test/CodeGen/ARM/wineh-try-catch-stack-args.ll
+new file mode 100644
+index 000000000..58cf09d89
+--- /dev/null
++++ b/llvm/test/CodeGen/ARM/wineh-try-catch-stack-args.ll
+@@ -0,0 +1,57 @@
++; RUN: llc -mtriple thumbv7-windows-msvc -o - %s
++; XFAIL: *
++
++; FIXME: C++ EH is not supported on thumbv7-windows-msvc yet.
++
++; FIXME: Windows SEH for armv7 does not preserve the frame register R11 in
++; handlers. This may affect C++ EH when accessing arguments on the stack in
++; functions with stack realignment.
++
++; C++ source:
++; struct X { int x[100]; };
++; void f(X x, void (*a)(), void (*g)(int*)) {
++;     alignas(64) int aligned;
++;     try {
++;         a();
++;     } catch (...) {
++;         g(&x.x[11]);
++;     }
++; }
++
++%struct.X = type { [100 x i32] }
++
++define void @"?f@@YAXUX@@P6AXXZP6AXPAH@Z@Z"(ptr byval(%struct.X) align 4 %x, ptr %a, ptr %g) personality ptr @__CxxFrameHandler3 {
++entry:
++  %g.addr = alloca ptr, align 4
++  %a.addr = alloca ptr, align 4
++  %aligned = alloca i32, align 64
++  store ptr %g, ptr %g.addr, align 4
++  store ptr %a, ptr %a.addr, align 4
++  %0 = load ptr, ptr %a.addr, align 4
++  invoke void %0()
++          to label %invoke.cont unwind label %catch.dispatch
++
++catch.dispatch:                                   ; preds = %entry
++  %1 = catchswitch within none [label %catch] unwind to caller
++
++catch:                                            ; preds = %catch.dispatch
++  %2 = catchpad within %1 [ptr null, i32 64, ptr null]
++  %3 = load ptr, ptr %g.addr, align 4
++  %x1 = getelementptr inbounds %struct.X, ptr %x, i32 0, i32 0
++  %arrayidx = getelementptr inbounds [100 x i32], ptr %x1, i32 0, i32 11
++  call void %3(ptr %arrayidx) [ "funclet"(token %2) ]
++  catchret from %2 to label %catchret.dest
++
++catchret.dest:                                    ; preds = %catch
++  br label %try.cont
++
++try.cont:                                         ; preds = %catchret.dest, %invoke.cont
++  ret void
++
++invoke.cont:                                      ; preds = %entry
++  br label %try.cont
++}
++
++declare dso_local arm_aapcs_vfpcc i32 @__CxxFrameHandler3(...)
++
++attributes #0 = { uwtable }
+-- 
+2.53.0.windows.3
+

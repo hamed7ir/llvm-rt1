@@ -14,12 +14,18 @@ WHAT THIS IS
 rt1 is a small BINARY OVERLAY onto the official LLVM 18.1.8 win64 package. It is
 NOT a fork, not a distribution, and not a replacement.
 
-What is in this package (254 files):
+What is in this package (259 files):
 
   bin/                9 driver executables, rebuilt -- these are the modified
                       files this notice is about
   lib/clang/18/include/   233 resource headers, matching the rebuilt clang
-  patches/            the 8 patches, as readable diffs
+  patches/            the 9 patches, as readable diffs
+  runtime/            4 files: aeabi-shim.c and a prebuilt aeabi-shim.lib /
+                      aeabi-shim.obj for ARM32, plus README-aeabi-shim.txt
+                      saying exactly when they are needed. These are the only
+                      ARM32 TARGET binaries in the package; everything else
+                      here is the x64 host toolchain. Nothing links them for
+                      you -- see the README before adding them
   RELEASE-NOTES.md   the release notes: known differences, known
                       limitations, the porting checklist, provenance
   DISPOSITION-TABLE.md   every defect examined during this work, with one
@@ -36,8 +42,11 @@ arm_bf16.h, arm_vector_types.h) are LF. The sanitizer/xray/profile/fuzzer/orc
 headers are absent because those runtimes are not built here.
 
   Upstream base : llvmorg-18.1.8, commit 3b5b5c1ec4a3095ab096dd780e84d7ab81f3d7ff
-  rt1 build     : commit 7653a13d8d28189c7cef1401b934ec30d98ea353
-                  (= the base plus the eight patches in patches/)
+  rt1.1 build   : commit 60876c5f8fad221756afd9bbd534377b7ff06571
+                  (= the base plus the nine patches in patches/)
+
+  rt1.1 is a SECOND FROZEN RELEASE, not an update stream. rt1's promise of no
+  rebases and no version bumps still holds for rt1, and holds for rt1.1 too.
 
 Every binary here carries its provenance, but HOW YOU CHECK DEPENDS ON WHICH:
 
@@ -53,8 +62,18 @@ Every binary here carries its provenance, but HOW YOU CHECK DEPENDS ON WHICH:
 The commit IS embedded in all nine. To verify an lld driver, search its bytes
 for the commit string rather than trusting --version:
 
-    findstr /M /C:"7653a13d8d28189c7cef1401b934ec30d98ea353" <binary>     (cmd.exe)
-    grep -ac 7653a13d8d28189c7cef1401b934ec30d98ea353 <binary>           (git-bash/WSL)
+    findstr /M /C:"60876c5f8fad221756afd9bbd534377b7ff06571" <binary>     (cmd.exe)
+    grep -ac 60876c5f8fad221756afd9bbd534377b7ff06571 <binary>           (git-bash/WSL)
+
+AND CHECK THE OTHER HALF. rt1 1.0's commit must be ABSENT:
+
+    findstr /M /C:"7653a13d8d28189c7cef1401b934ec30d98ea353" <binary>     -> no match
+    grep -ac 7653a13d8d28189c7cef1401b934ec30d98ea353 <binary>           -> 0
+
+That second check is not decoration. The first rt1.1 build carried rt1 1.0's
+commit by mistake, so the presence test alone PASSED on it and reported it as
+the earlier release -- wrong, in the direction that matters. Presence without
+absence cannot tell the two releases apart.
 
 WHAT A PASS LOOKS LIKE, and the two commands say it differently:
 
@@ -110,9 +129,11 @@ upstream's invalid-base test does not fault on 18.1.8 and so does not arm the
 guard's second half.
 
 Series footprint against the upstream base (llvmorg-18.1.8,
-3b5b5c1ec4a3095ab096dd780e84d7ab81f3d7ff): the eight patches touch 22 files,
-+1,239 / -32. Twelve of those files are modified (+314/-32); ten are new test
-files (+925/-0).
+3b5b5c1ec4a3095ab096dd780e84d7ab81f3d7ff): the nine patches touch 38 files,
++2,312 / -123. Twenty-four of those files are modified (+526/-123); fourteen
+are new test files (+1,786/-0). Counted with `git apply --numstat` over unique
+paths -- the same method reproduces rt1 1.0's published 22 files / +1,239 / -32
+for its eight patches, so the two releases' figures are comparable.
 
 
 WHAT WAS NOT CHANGED

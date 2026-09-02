@@ -1,0 +1,14 @@
+kit=TRIP-KIT-1
+probe=p5
+mode=finally
+question=does this toolchain lower __try/__except/__finally the way MSVC does
+frames=ordinary Thumb only - the A32-frame oracle is dead (trip-4: all three toolchains including clang main fail to dispatch across an unregistered dynamic frame)
+built_by=clang 18.1.8
+build_id=rt1.1-60876c5f8fad221756afd9bbd534377b7ff06571
+finally.ran_on_normal_path=1
+finally.ran_on_exceptional_path=1
+finally.outer_filter_ran=1
+finally.filter_code=0xC0000005
+VERDICT=PASS
+reason=__finally ran on both paths and the exception still reached the outer __except
+exit=0
