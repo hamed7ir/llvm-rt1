@@ -14,12 +14,14 @@ WHAT THIS IS
 rt1 is a small BINARY OVERLAY onto the official LLVM 18.1.8 win64 package. It is
 NOT a fork, not a distribution, and not a replacement.
 
-What is in this package (259 files):
+What is in this package (268 files):
 
   bin/                9 driver executables, rebuilt -- these are the modified
-                      files this notice is about
+                      files this notice is about; plus 8 Microsoft VC runtime
+                      DLLs, which are NOT ours and NOT modified -- see THE VC
+                      RUNTIME below, and read it before you install
   lib/clang/18/include/   233 resource headers, matching the rebuilt clang
-  patches/            the 9 patches, as readable diffs
+  patches/            the 10 patches, as readable diffs
   runtime/            4 files: aeabi-shim.c and a prebuilt aeabi-shim.lib /
                       aeabi-shim.obj for ARM32, plus README-aeabi-shim.txt
                       saying exactly when they are needed. These are the only
@@ -34,7 +36,54 @@ What is in this package (259 files):
                       citations resolve for someone holding only this package
   LICENSE.TXT, MODIFICATIONS.txt
 
-Nothing else in an LLVM installation is touched. NOTE the resource headers are
+THE VC RUNTIME, AND WHY THIS PACKAGE SHIPS EIGHT MICROSOFT DLLs
+---------------------------------------------------------------
+
+Read this if you wonder why a compiler overlay carries msvcp140.dll.
+
+The official LLVM 18.1.8 win64 package bundles its own copy of the MSVC C++
+runtime in bin/, at version 14.29.30139 (the VS2019 16.11 toolset). These
+drivers are built with the VS2022 14.44 toolset and import MSVCP140.dll.
+Windows resolves an executable's own directory BEFORE the system directory,
+so a driver copied into that bin/ loads the 14.29 runtime sitting beside it
+instead of the newer system one -- and dies immediately with an access
+violation (0xC0000005), printing NOTHING AT ALL. A consumer following the
+install instructions would get a compiler that crashes on --version with no
+diagnostic to go on.
+
+So this package ships the 14.44 redistributable and replaces those eight
+files one for one. MEASURED both directions before shipping: these drivers
+work beside 14.44, and stock LLVM's OWN clang-cl still works beside 14.44
+too -- the MSVC runtime is forward compatible within 14.x, which is the
+whole reason this fix is safe rather than a trade.
+
+  concrt140.dll   msvcp140.dll     msvcp140_1.dll             msvcp140_2.dll
+  vcruntime140.dll  vcruntime140_1.dll  msvcp140_atomic_wait.dll
+  msvcp140_codecvt_ids.dll
+
+These eight are MICROSOFT's redistributable files, supplied under the Visual
+Studio redistribution terms. They are NOT covered by the Apache-2.0 licence
+in LICENSE.TXT, they are not modified, and no copyright in them is claimed
+here. The official LLVM package ships the same eight for the same reason.
+
+If you would rather not take Microsoft binaries from us, the alternative is
+to DELETE all eight from bin/ after installing, so every tool resolves the
+system copy instead. That works and is tested. It is not the default because
+a consumer who forgets the step gets the silent crash described above.
+
+⚠ rt1 1.0 AND rt1.1 SHIP WITHOUT THIS FIX and have the same defect: their
+documented install produces a crashing clang-cl on any machine whose system
+VC runtime is newer than the bundled 14.29. Neither was ever caught in house
+because all in-house testing ran the drivers from the build tree, which has
+no DLLs beside them. If you are using either, delete the eight files listed
+above from your installed bin/, or move to rt1.2.
+
+
+WHAT ELSE IS TOUCHED
+--------------------
+
+Apart from those eight runtime files, nothing else in an LLVM installation is
+touched. NOTE the resource headers are
 NOT byte-identical to the stock 18.1.8 set: they are what this clang was built
 with. 225 of the 233 use CRLF line endings; the eight TableGen-generated ARM
 headers (arm_neon.h, arm_mve.h, arm_sve.h, arm_sme.h, arm_cde.h, arm_fp16.h,
@@ -42,11 +91,11 @@ arm_bf16.h, arm_vector_types.h) are LF. The sanitizer/xray/profile/fuzzer/orc
 headers are absent because those runtimes are not built here.
 
   Upstream base : llvmorg-18.1.8, commit 3b5b5c1ec4a3095ab096dd780e84d7ab81f3d7ff
-  rt1.1 build   : commit 60876c5f8fad221756afd9bbd534377b7ff06571
-                  (= the base plus the nine patches in patches/)
+  rt1.2 build   : commit 83c117cad0a9dee89e6daf6821c49156a3c562c0
+                  (= the base plus the ten patches in patches/)
 
-  rt1.1 is a SECOND FROZEN RELEASE, not an update stream. rt1's promise of no
-  rebases and no version bumps still holds for rt1, and holds for rt1.1 too.
+  rt1.2 is a THIRD FROZEN RELEASE, not an update stream. rt1's promise of no
+  rebases and no version bumps still holds for rt1, for rt1.1 and for rt1.2.
 
 Every binary here carries its provenance, but HOW YOU CHECK DEPENDS ON WHICH:
 
@@ -62,18 +111,20 @@ Every binary here carries its provenance, but HOW YOU CHECK DEPENDS ON WHICH:
 The commit IS embedded in all nine. To verify an lld driver, search its bytes
 for the commit string rather than trusting --version:
 
-    findstr /M /C:"60876c5f8fad221756afd9bbd534377b7ff06571" <binary>     (cmd.exe)
-    grep -ac 60876c5f8fad221756afd9bbd534377b7ff06571 <binary>           (git-bash/WSL)
+    findstr /M /C:"83c117cad0a9dee89e6daf6821c49156a3c562c0" <binary>     (cmd.exe)
+    grep -ac 83c117cad0a9dee89e6daf6821c49156a3c562c0 <binary>           (git-bash/WSL)
 
-AND CHECK THE OTHER HALF. rt1 1.0's commit must be ABSENT:
+AND CHECK THE OTHER HALF. rt1.1's and rt1 1.0's commits must both be ABSENT:
 
+    findstr /M /C:"60876c5f8fad221756afd9bbd534377b7ff06571" <binary>     -> no match
+    grep -ac 60876c5f8fad221756afd9bbd534377b7ff06571 <binary>           -> 0
     findstr /M /C:"7653a13d8d28189c7cef1401b934ec30d98ea353" <binary>     -> no match
     grep -ac 7653a13d8d28189c7cef1401b934ec30d98ea353 <binary>           -> 0
 
 That second check is not decoration. The first rt1.1 build carried rt1 1.0's
 commit by mistake, so the presence test alone PASSED on it and reported it as
 the earlier release -- wrong, in the direction that matters. Presence without
-absence cannot tell the two releases apart.
+absence cannot tell the releases apart.
 
 WHAT A PASS LOOKS LIKE, and the two commands say it differently:
 
@@ -87,8 +138,10 @@ WHAT A PASS LOOKS LIKE, and the two commands say it differently:
             means the string is absent.
 
 On all nine binaries of this package, findstr prints the filename and exits 0
-for each, and grep -ac prints 2 for each -- 9 of 9 pass both (measured
-2026-08-11).  Both commands were also run against the stock LLVM 18.1.8
+for each, and grep -ac prints 2 for each -- 9 of 9 pass both, and 9 of 9 also
+return 0 for rt1.1's and rt1 1.0's commits (measured 2026-09-14 by this project's
+packaging harness, which lives in its private working repository and is not shipped).
+Both commands were also run against the stock LLVM 18.1.8
 clang.exe as a control and both correctly REJECT it (findstr exit 1 with no
 output; grep -ac 0, exit 1), so neither command passes everything it is
 handed.
@@ -100,8 +153,11 @@ not from this release.
 WHAT WAS CHANGED
 ----------------
 
-Eight patches, all included as readable diffs in patches/. Six are ours; two are
-backports of upstream's own fixes to a branch that never received them.
+Ten patches, all included as readable diffs in patches/. Eight are ours; two
+are backports of upstream's own fixes to a branch that never received them.
+
+(rt1.1's copy of this file said "Eight patches" and listed only 0001-0008 while
+shipping nine -- 0009 was never added to the list below. Corrected here.)
 
   0001  ARM: prologue over-allocated the frame by 8 bytes under the split
         R11/LR push, so SP- and base-pointer-relative frame references landed
@@ -120,6 +176,10 @@ backports of upstream's own fixes to a branch that never received them.
         backend.                                                     [ours]
   0008  clang: -fdump-record-layouts-complete crashed on records that cannot
         be laid out.        [PORT, verbatim, of upstream e4882d83d77f, LLVM 19]
+  0009  ARM: Windows SEH (__try / __except / __finally) was rejected by the
+        front end and unimplemented in the backend.                  [ours]
+  0010  clang: _setjmp on Windows ARM32 was handed the frame pointer instead
+        of the entry stack pointer, so longjmp died STATUS_BAD_STACK. [ours]
 
 Patches 0006 and 0008 carry upstream's own fixes back to 18.x; no claim of
 authorship is made over the upstream code or over the upstream tests shipped
@@ -129,8 +189,8 @@ upstream's invalid-base test does not fault on 18.1.8 and so does not arm the
 guard's second half.
 
 Series footprint against the upstream base (llvmorg-18.1.8,
-3b5b5c1ec4a3095ab096dd780e84d7ab81f3d7ff): the nine patches touch 38 files,
-+2,312 / -123. Twenty-four of those files are modified (+526/-123); fourteen
+3b5b5c1ec4a3095ab096dd780e84d7ab81f3d7ff): the ten patches touch 40 files,
++2,333 / -127. Twenty-six of those files are modified (+547/-127); fourteen
 are new test files (+1,786/-0). Counted with `git apply --numstat` over unique
 paths -- the same method reproduces rt1 1.0's published 22 files / +1,239 / -32
 for its eight patches, so the two releases' figures are comparable.

@@ -1,34 +1,48 @@
-# rt1.1 — release notes
+# rt1.2 — release notes
 
-rt1.1 is a small **binary overlay** onto the official LLVM 18.1.8 win64 package, for people
+rt1.2 is a small **binary overlay** onto the official LLVM 18.1.8 win64 package, for people
 **compiling C and C++ for ARM32 Windows** (`thumbv7`) with `clang-cl` and
-`lld-link`. It fixes four code-generation and linker defects that produce silently wrong ARM32
+`lld-link`. It fixes five code-generation and linker defects that produce silently wrong ARM32
 binaries, and four narrower ones, and it **adds Windows SEH support for ARM32** — see the patch
-table. If you do not target ARM32 Windows, you do not need it.
+table. **New in rt1.2: `setjmp`/`longjmp` no longer corrupt the unwind frame on ARM32.** If you do not target ARM32 Windows, you do not need it.
 
 **To install:** install the official LLVM 18.1.8 win64 package, then copy this package's
-`bin/` and `lib/clang/18/include/` over it. Nothing else in the installation is touched, and
-`MODIFICATIONS.txt` tells you how to confirm the binaries you are holding are these ones.
+`bin/` and `lib/clang/18/include/` over it. `MODIFICATIONS.txt` tells you how to confirm the
+binaries you are holding are these ones.
 
-## rt1.1 is a SECOND FROZEN RELEASE, not the start of maintenance
+> ⚠ **rt1.2's `bin/` contains eight Microsoft VC runtime DLLs as well as the nine drivers, and they
+> must be copied with them.** The official LLVM package bundles a 14.29 MSVC runtime in its `bin/`;
+> these drivers are built with 14.44, and Windows loads an executable's own directory first — so a
+> driver dropped beside the older runtime dies with an access violation and **prints nothing at
+> all**. rt1.2 ships the matching runtime and replaces those eight files. Measured both ways: these
+> drivers work beside it, and stock LLVM's own `clang-cl` still works beside it too.
+>
+> **rt1 1.0 and rt1.1 do not carry this fix and have the same defect.** If you are on either, delete
+> `msvcp140*.dll`, `vcruntime140*.dll` and `concrt140.dll` from your installed `bin/` so everything
+> resolves the system runtime — or move to rt1.2. This was never caught in house because all
+> in-house testing ran the drivers from the build tree, where no DLLs sit beside them.
+
+## rt1.2 is a THIRD FROZEN RELEASE, not the start of maintenance
 
 rt1 said it was released once, with no rebases and no version bumps. **That is still true of rt1,
-and it is true of rt1.1 as well.** rt1.1 is not an update stream and does not make rt1's promise
-retroactively false: it is a second one-shot release, cut from the same frozen `llvmorg-18.1.8`
-base (`3b5b5c1ec`), carrying one additional patch. There is no rt1.2 planned, no rebase planned,
-and no version bump planned.
+of rt1.1 and of rt1.2.** Each is a one-shot release cut from the same frozen `llvmorg-18.1.8` base
+(`3b5b5c1ec`), carrying one more patch than the last. No rebase and no version bump is planned for
+any of them.
 
-If you are using rt1 and do not need `__try` on ARM32, **you have no reason to move.** Every patch
-in rt1 is in rt1.1 unchanged, and the compiler produces identical objects for code that does not
-use SEH — measured, not assumed; see *Verification status*.
+rt1.1's notes said "there is no rt1.2 planned". rt1.2 exists because a `longjmp` was measured
+killing a process on a device, not because a maintenance stream was started. The promise being kept
+is that **no release changes after it is cut**, and none has.
 
-Neither release is maintained. Both are archives.
+If you are using rt1.1 and your code never calls `setjmp`, **you have no reason to move.** Every
+patch in rt1.1 is in rt1.2 unchanged.
+
+None of the three is maintained. All are archives.
 
 ---
 
 ## The patch set
 
-**Nine patches, all accepted.**
+**Ten patches, all accepted.**
 
 | patch | fixes | origin |
 |---|---|---|
@@ -40,11 +54,50 @@ Neither release is maintained. Both are archives.
 | **0006** | `-Wpadded` / `-Wpadded-bitfield` dead under the MS record layout builder | **PORT** from LLVM 21 |
 | **0007** | musttail vararg forwarder that also calls `va_start` → backend fatal | ours |
 | **0008** | crash under `-fdump-record-layouts-complete` | **PORT** of `e4882d83d77f` (LLVM 19) + 2 rt1 tests |
-| **0009** | **NEW IN rt1.1** — Windows SEH (`__try` / `__except` / `__finally`) for ARM32 | **PORT** of `6c34ed7b3` (PR #184953, LLVM 21) |
+| **0009** | Windows SEH (`__try` / `__except` / `__finally`) for ARM32 | **PORT** of `6c34ed7b3` (PR #184953, LLVM 21) |
+| **0010** | **NEW IN rt1.2** — D42 — `setjmp` on Windows ARM32 was handed the frame pointer instead of the entry stack pointer, so `longjmp` died `STATUS_BAD_STACK` | ours |
 
 ---
 
-# What is new in rt1.1
+# What is new in rt1.2
+
+## `setjmp` / `longjmp` work on ARM32 — the headline fix of rt1.2
+
+On Windows, `_setjmp` and `_setjmpex` take a second argument: the frame, which the CRT stores into
+the `jmp_buf` and which `longjmp` later hands to `RtlUnwindEx` as the frame to unwind to. clang
+computed that argument with `llvm.sponentry` — the stack pointer as it was on entry to the function
+— **only for AArch64**. 32-bit ARM fell through to `llvm.frameaddress(0)` and passed the **frame
+pointer** instead.
+
+On ARM32 the frame pointer is `r11`, and a function that sets one up leaves it pointing at its own
+saved slot — 8 bytes below the entry stack pointer when the callee-save push is the first prologue
+instruction, and further once the prologue has moved SP. MSVC for the same target passes the entry
+stack pointer. So the value clang stored was not the one `longjmp` needed.
+
+**What that looked like on a device.** A `longjmp` in a program built with `clang-cl` died with
+**`0xC0000028` — `STATUS_BAD_STACK`** on real ARM32 Windows, while the same program built with MSVC
+ran to completion. Four deliberate perturbations of the stored frame value all died with that same
+status, which is what identifies the stored value as the cause rather than a coincidence.
+
+**Patch 0010** extends the condition to 32-bit ARM. No backend work was needed:
+`__builtin_sponentry` already exists for ARM, `ARMTargetLowering::LowerSPONENTRY` already lowers it
+to the entry stack pointer, and `llvm/test/CodeGen/ARM/sponentry.ll` already runs
+`llc -mtriple=thumbv7-windows-msvc` over IR that hands `llvm.sponentry` to `_setjmpex`. Only the
+frontend condition had been left behind.
+
+⚠ **Be precise about what has been validated.** The **defect** was measured on ARM32 hardware, as
+above. The **fix has not been run on ARM32 hardware** — the device trip for it was removed from its
+batch and never rescheduled. What is measured about the fix is compiler-side: rt1.2 emits
+`llvm.sponentry` where stock 18.1.8 emits `llvm.frameaddress`, on the builtin's own test. That is a
+weaker claim than the one behind SEH in rt1.1, which did run on a device, and it is stated as the
+weaker claim rather than blurred into the hardware result above it.
+
+**Upstream has not fixed this in any clang this project has measured** — 18.1.8, 21.1.8, 22.1.8,
+23.1.0 and 23.1.1 all still emit `llvm.frameaddress` here. Measured 2026-09-14 against stock 23.1.0 and
+23.1.1: both still emit `llvm.frameaddress` for `thumbv7-windows-msvc`. A PR is drafted and not
+filed; filing is the submitter's action. See the disposition table, row D42.
+
+# What was new in rt1.1
 
 ## Windows SEH works on ARM32 — and it does not, yet, in any released clang
 
@@ -109,7 +162,7 @@ to `__rt_sdiv` / `__rt_udiv`, which the MSVC ARM CRT ships — MEASURED, the onl
 in such an object. You need the shim only if your own source *names* `__aeabi_idivmod` or
 `__aeabi_uidivmod`, as SpiderMonkey's soft-divide and wasm paths do.
 
-**rt1.1 still ships no builtins archive, and that remains deliberate.** compiler-rt's
+**rt1.2 still ships no builtins archive, and that remains deliberate.** compiler-rt's
 `__udivmodsi4` does not trap on divide-by-zero where MSVC's `__rt_*` helpers do; taking it would
 trade a platform-matching trap for a silent wrong answer. Both CMake gates that would have blocked
 building it actually move, so the gates were never the reason — the semantics are.
@@ -303,6 +356,13 @@ fatal error: error in backend: failed to perform tail call elimination on a call
 **This is a loud compile-time refusal. It is never silent wrong code** — which is why rt1 ships
 without a fix rather than with a rushed one.
 
+**MEASURED 2026-09-14: LLVM 23 compiles this and rt1.2 does not.** The patches' own
+reproducer (`llvm/test/CodeGen/ARM/musttail-sret.ll`) was run through stock 23.1.0's `llc` and
+through rt1.2's, both `-mtriple=thumbv7-unknown-windows-msvc`: **stock 23.1.0 lowers it, rt1.2
+still fatals.** This is the one defect in this table where moving to a modern upstream toolchain
+fixes something rt1.2 cannot. It is stated here because a reader weighing rt1.2 against LLVM 23
+deserves the comparison that does not favour this release.
+
 **Fixed upstream in LLVM 20, by a TWO-COMMIT stack**, both by Oliver Stannard (Arm), both landed
 2024-10-25:
 
@@ -336,7 +396,7 @@ workflow — if you invoke them, you are using stock 18.1.8 behaviour.
 
 ## Build configuration
 
-The configure command line is in `stage/MODIFICATIONS.txt` (SOURCE section). It reproduces this build from an
+The configure command line is in `MODIFICATIONS.txt` (SOURCE section), at the archive's top level. It reproduces this build from an
 empty build directory, and already carries `-DLLVM_ENABLE_DIA_SDK=OFF` explicitly. Host toolset:
 vs22buildtools 14.44 (MSVC 14.16 cannot host LLVM 18 — it remains the **target** environment rt1's
 output links against, not the host compiler). Generator: ninja 1.13.2.
@@ -378,7 +438,7 @@ LLVM DLLs, resource headers at `lib/clang/18`.
 |---|---|
 | **0006** — `-Wpadded` under the MS record layout builder | **PORT** of upstream's LLVM 21 implementation, structurally identical at the same call sites |
 | **0008** — guard `RecordDecl::completeDefinition()` | **PORT**, verbatim, of upstream `e4882d83d77f` (first shipped **LLVM 19**, never backported to 18.x) — including upstream's own comment block and both of its test files, plus **two rt1-authored tests, which are ours** (`dump-complete-invalid-field.cpp`, `dump-complete-uninstantiable.cpp`) |
-| **0002** — lld local-import Thumb bit | **ours**, and **now upstream**: submitted as PR #215919 and **merged 2026-08-27 as `bfaec6c07`**, touching `lld/COFF/Chunks.cpp`. It will ship in **LLVM 24** and is in no released version, which is why rt1.1 still carries the patch |
+| **0002** — lld local-import Thumb bit | **ours**, and **now upstream**: submitted as PR #215919 and **merged 2026-08-27 as `bfaec6c07`**, touching `lld/COFF/Chunks.cpp`. It will ship in **LLVM 24** and is in no released version, which is why rt1.2 still carries the patch. MEASURED 2026-09-14 against the released 23.1.1 source: `LocalImportChunk::writeTo` still writes a plain RVA, and stock 23.1.0 reproduces the defect |
 | **0009** — Windows SEH for ARM32 | **PORT** of upstream `6c34ed7b3` (PR #184953), adapted for LLVM 18's `cleanupret` arity — see D41 in the disposition table. That commit is on `main` and is **not** an ancestor of `llvmorg-22.1.8`, so it has shipped in no released clang |
 | 0001, 0003, 0004, 0005, 0007 | **ours** — authored here, with upstream drafts written but **not filed**. Bug 1 (forwarded `musttail` registers), Bug 4 (CodeView tuple-register ICE) and defect #6 (musttail vararg + `va_start`) all **remain unfixed upstream** |
 
@@ -436,6 +496,39 @@ recently (the Developer Policy now redirects to a separate AI Tool Use Policy) a
 not encode a stale requirement.
 
 ## Verification status
+
+### rt1.2's own verification
+
+**rt1.2 has built a real browser.** On 2026-09-15 the full Varan tree — Pale Moon 34.3.1 on
+UXP/Goanna 6.9.0, targeting ARM32 Windows — was compiled and linked with rt1.2 from clean:
+**2,537 of 2,537 translation units, 19 of 19 PEs, zero errors**, every image ARMNT `0x1C4`. The
+resulting browser launched on a Windows 10 ARM32 device and loaded a page. That is a materially
+stronger claim than rt1.1 could make on its cut day.
+
+⚠ **Two honest qualifications on that device run.** It is **n=1**, one page load — not a test
+suite, not a browsing session. And **that run crashed** ("Varan web browser has stopped working")
+partway through, with no dump captured and **no diagnosis**; a build made with LLVM 23 in the same
+sitting did not crash. One observation each, cause unknown. It is recorded here rather than left
+out because a release note that reports only the half that flatters the release is not a release
+note.
+
+**No object-by-object corpus gate was run for rt1.2**, and no SEH device trip: rt1.1 earned those
+with 2,582 translation units compiled twice and compared, and with SEH executed on a Tegra 3, and
+**neither was repeated for patch 0010.** What backs rt1.2 is therefore:
+
+| claim | how it is backed |
+|---|---|
+| patch 0010 changes `setjmp` lowering as intended | MEASURED — `clang/test/CodeGen/ms-setjmp.c` through `-cc1 -triple thumbv7-windows-msvc`: rt1.2 emits `llvm.sponentry` ×3 / `llvm.frameaddress` ×0, stock 18.1.8 the exact converse |
+| the other nine patches still behave | MEASURED — each patch's own lit test re-run against rt1.2's `llc`/`clang`/`lld-link`, nine of nine as expected, with stock 18.1.8 as the must-fail control wherever it can run |
+| the shipped binaries are the ones described | MEASURED — 9 of 9 drivers carry rt1.2's revision string and neither predecessor's, checked in both directions |
+| the defect 0010 fixes is real on hardware | MEASURED on device — but **that measurement predates the fix**; see the `setjmp` section above |
+| rt1.2 compiles and links a real, large C++ codebase | MEASURED — the full Varan browser, 2,537/2,537 TUs, 19/19 PEs, 0 errors, all ARMNT |
+| an rt1.2-built browser starts and renders on ARM32 hardware | MEASURED once — it launched and loaded a page, **then crashed, undiagnosed** |
+| **patch 0010 fixes `longjmp` on hardware** | **NOT MEASURED.** No `longjmp` has been executed on an ARM32 device with an rt1.2-built binary. Varan's build exercises the compiler, not this code path |
+
+The last row is the one to read twice. rt1.2's headline fix is justified by a hardware measurement
+of the **defect** and a compiler measurement of the **change**, and by nothing that joins the two.
+A device trip would close it; none is scheduled here.
 
 ### rt1.1's own gate: the whole Varan corpus, compiled twice, compared object by object
 
@@ -580,7 +673,7 @@ number.
 | item | state |
 |---|---|
 | **verification pass over this document** | **DONE.** Six mechanical passes (92/17/3 · 22/7 · 265/45/1 · then rounds 4–6, 94 further corrections, 0 missed anchors) plus a human end-to-end read that found six more — see Verification status, in Provenance and honesty. A sweep over the changed lines returns 0 surviving superseded values and 0 absent replacements, floor armed. Residue, stated exactly: the prose written for those last six corrections has had the sweep but not a second human read |
-| **`musttail`→`sret` tail call** (D37) | refused on ARM32; fixed upstream in LLVM 20 by a two-commit stack rt1 carries neither half of. **This release will not carry it** — the door is recorded for a future one-off only, and it opens on a byte-identical fleet rebuild plus a runtime acceptance (see the disposition table) |
+| **`musttail`→`sret` tail call** (D37) | refused on ARM32; fixed upstream in LLVM 20 by a two-commit stack rt1 carries neither half of. **This release will not carry it.** MEASURED 2026-09-14: stock LLVM 23.1.0 lowers the reproducer and rt1.2 still fatals — LLVM 23 fixes D37, rt1.2 does not |
 | **LTO** | rt1's `lld` carries the codegen fixes; nobody has run them under LTO |
 | **five auxiliary binaries** | ship unpatched, 0-invocation |
 | **upstream filings** | drafts complete; filing is the submitter's action |

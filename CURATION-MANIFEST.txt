@@ -1,9 +1,7 @@
 .githooks/pre-commit
-DISPOSITION-TABLE.md
-README.md
-RELEASE-NOTES.md
 build-rt1.bat
 cmake-rt1.bat
+DISPOSITION-TABLE.md
 patches/0001-arm-frame-lowering-splitpush.patch
 patches/0002-lld-coff-localimport-thumb-bit.patch
 patches/0003-arm-forwarded-musttail-regs.patch
@@ -13,11 +11,14 @@ patches/0006-clang-ms-layout-padding-diagnostics.patch
 patches/0007-arm-musttail-vararg-vastart-tailcall.patch
 patches/0008-clang-dump-complete-uninstantiable-guard.patch
 patches/0009-arm-windows-seh.patch
+patches/0010-clang-ms-setjmp-sponentry-arm32.patch
 patches/candidates/0009-arm-sret-tailcall.CANDIDATE.patch
-runtime/README-aeabi-shim.txt
+README.md
+RELEASE-NOTES.md
 runtime/aeabi-shim.c
 runtime/aeabi-shim.lib
 runtime/aeabi-shim.obj
+runtime/README-aeabi-shim.txt
 scratch/A32M/P5-RESULTS.md
 scratch/A32M/results/trip-5-p5/p5-A-control.txt
 scratch/A32M/results/trip-5-p5/p5-A-except.txt
@@ -34,8 +35,8 @@ scratch/D26/banked-tooling/gate-thunks.py
 scratch/D26/banked-tooling/run-suite.sh
 scratch/D3/vbank.py
 scratch/D37/R3-C-GATE.md
-scratch/D38/E-VERDICT.md
 scratch/D38/d38scan.py
+scratch/D38/E-VERDICT.md
 scratch/D38/evidence/0008-asym-stock-stderr.txt
 scratch/D38/evidence/build-nav-fixup.log
 scratch/D39/FAMILY-BOUND.md

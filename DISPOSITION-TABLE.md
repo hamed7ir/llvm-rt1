@@ -603,6 +603,108 @@ Bisect `[measured]`: `struct Plain { int x; char c; };` → rc=0 · `struct Fwd;
   GEPs x24, `captures(none)` x2, `llvm.lifetime.*` size operand) were adapted the same way.
 - Full note: `scratch/T8/CLEANUPRET-NOTE.md`.
 
+### D42 — NEW ROW, opened 2026-09-08 — ARM32 Windows `setjmp` is handed the FRAME POINTER, not the entry stack pointer · **FIXED IN rt1.2 (patch 0010)**
+
+> Like D39–D41 and D43 this is a **NEW ROW outside the 38-row master table, so no tally changes.**
+
+- **The site**, READ-IN-SOURCE. `clang/lib/CodeGen/CGBuiltin.cpp`, `EmitMSVCRTSetJmp`. On Windows
+  `_setjmp`/`_setjmpex` take a second argument — the frame — which the CRT stores into the `jmp_buf`
+  and which `longjmp` later hands to `RtlUnwindEx` as the frame to unwind to. clang computes it with
+  `llvm.sponentry` (the stack pointer as it was on entry) **only when the architecture is aarch64**;
+  32-bit x86 goes to `_setjmp3`, and every other case — 32-bit ARM included — falls through to
+  `llvm.frameaddress(0)` and passes the frame pointer.
+
+- **Why the frame pointer is the wrong value on ARM32.** The frame pointer is `r11`, and a function
+  that sets one up leaves it pointing at its own saved slot. `r11` and `lr` are the two
+  highest-numbered registers in a callee-save push, so that slot is the second from the top of the
+  push — 8 bytes below the entry stack pointer when the push is the first prologue instruction, and
+  further once the prologue has moved SP. MSVC for the same target passes the entry stack pointer.
+
+- **MEASURED on hardware — the DEFECT, not the fix.** The device A/B in `TRIP4-ANALYSIS.md` §5:
+  `lua-msvc` runs to completion, `lua-clang` dies **`0xC0000028` (STATUS_BAD_STACK)** on a `longjmp`,
+  on real ARM32 Windows. Four perturbations of the stored frame value all die with the same status
+  (`scratch/SJ1/SJ1-SECTION1-RESULTS.md` §12), which is what identifies the stored value as the
+  cause rather than a coincidence.
+
+- **MEASURED in the compiler, this session** (`scratch/RT23P/probe_all.py`, probe 0010, `-cc1
+  -triple thumbv7-windows-msvc` over `clang/test/CodeGen/ms-setjmp.c`): stock 18.1.8 emits
+  `llvm.frameaddress` ×3 and `llvm.sponentry` ×0; rt1.2 emits `llvm.sponentry` ×3 and
+  `llvm.frameaddress` ×0. Stock 23.1.0 and 23.1.1 still emit `llvm.frameaddress` — **upstream has
+  not fixed this in any released clang.**
+
+- **No backend work was needed.** `__builtin_sponentry` already exists for ARM,
+  `ARMTargetLowering::LowerSPONENTRY` already lowers it to the entry stack pointer, and
+  `llvm/test/CodeGen/ARM/sponentry.ll` already runs `llc -mtriple=thumbv7-windows-msvc` over IR that
+  hands `llvm.sponentry` to `_setjmpex`. Only the frontend condition was left behind.
+
+- **rt1's action.** Patch **0010** extends the condition to 32-bit ARM, leaving the AArch64 half
+  spelled `getArch() == Triple::aarch64` rather than `isAArch64()` so the change is a **pure
+  extension** — `isAArch64()` also matches `aarch64_be`, which clang today compiles with
+  `llvm.frameaddress`, so that spelling would silently change a target this patch has no business
+  touching.
+
+- **Upstream.** A PR package is prepared at `upstream/PR-D42-arm32-windows-setjmp-sponentry.md`
+  with the patch at `upstream/patches/0001-D42-arm32-windows-setjmp-sponentry.patch`. **Not filed —
+  filing is the user's action (working rule 11).**
+
+- ⚠ **The FIX has not run on ARM32 hardware.** `BATCH-SETJMP-1-AMEND-2.md` A1 removed the device
+  trip from that batch; `SETJMP-1-RESULTS.md` records "Nothing here has run on hardware." The defect
+  is hardware-MEASURED, the fix is compiler-MEASURED only. See D42 in the release notes, which says
+  the same thing in the same words.
+
+### D43 — NEW ROW, opened 2026-09-07 — clang's `BI_setjmp` dispatch upgrades `_setjmp` to `_setjmpex` on **AArch64 only**; ARM32 emits `_setjmp` · **DISCLOSE, NO PATCH**
+
+> Like D39, D40 and D41 this is a **NEW ROW outside the 38-row master table, so no tally changes.**
+> Deliberate, not an omission: the OPEN count is a shipping number carried at five sites in this file
+> and in the frozen `stage/` copy, and this table already records under D37 that moving it is the
+> user's decision and not a side effect of adding a cross-reference.
+>
+> **D42 is the row immediately above**, added for rt1.2. It was reserved in `BATCH-SETJMP-1.md`
+> §0.6 as the free D-number for the `setjmp` frame-value defect; D43 was opened first, before it,
+> because `BATCH-UPSTREAM-3-AMEND-1.md` A2 asked for it by that number.
+
+- **The site**, READ-IN-SOURCE at two named trees. `clang/lib/CodeGen/CGBuiltin.cpp`,
+  `case Builtin::BI_setjmp:` — rt1 tree `60876c5f8` lines **5222–5229**; upstream `main` at
+  **`edbf358d0`** lines **6176–6185** (worktree `scratch/UP3/main-src`). Identical shape in both:
+
+  ```cpp
+        if (getTarget().getTriple().getArch() == llvm::Triple::x86)
+          return EmitMSVCRTSetJmp(*this, MSVCSetJmpKind::_setjmp3, E);
+        else if (getTarget().getTriple().getArch() == llvm::Triple::aarch64)
+          return EmitMSVCRTSetJmp(*this, MSVCSetJmpKind::_setjmpex, E);
+        return EmitMSVCRTSetJmp(*this, MSVCSetJmpKind::_setjmp, E);
+  ```
+
+  AArch64 **upgrades** the call to `_setjmpex`; 32-bit ARM falls through to `_setjmp`. MEASURED in
+  the emitted IR with stock clang 22.1.8 (`clang22\pkg\bin\clang.exe`, sha256 `986af49c2d1eefea…`),
+  `-cc1 -triple thumbv7-windows-msvc`: `call arm_aapcs_vfpcc i32 @_setjmp(ptr @jb, ptr %0)`, against
+  aarch64's `@_setjmpex`.
+
+- **Why it is inert on ARM32 — and this is the cheap form of the argument, checkable from two header
+  lines.** MSVC's own header maps `setjmp` to `_setjmp` on **every** architecture unless
+  `<setjmpex.h>` is included. MEASURED on the pinned toolset:
+  `D:\Program Files\Vscom\VC\Tools\MSVC\14.16.27023\include\setjmp.h:150-151` —
+  `#ifndef _INC_SETJMPEX` / `#define setjmp _setjmp`; and `setjmpex.h:18-19` — `#undef setjmp` /
+  `#define setjmp _setjmpex`, in the `#else` of the `_M_IX86` test at `:14`. **So on ARM32 clang
+  calls exactly what MSVC calls.** AArch64's upgrade is the deliberate deviation from the header;
+  ARM32's non-upgrade is not a deviation at all.
+
+- **Corroborating runtime measurement, cited rather than re-run.** `BATCH-SETJMP-1.md` §0.5 and
+  `BATCH-UPSTREAM-3-AMEND-1.md` A2: in the shipped `lua-clang.exe` the `bl` reaches `setjmp`, whose
+  body is a check of `_setjmpexused` followed by an indirect tail-branch into `setjmpex`;
+  `_setjmpexused` was read from both PEs and is non-zero in both; `setjmpex`'s first instruction is
+  `str r1,[r0]`. **The ARM32 CRT routes `_setjmp` into `_setjmpex` at runtime**, so the frame value
+  reaches `jmp_buf.Frame` either way. ⚠ **NOT re-derived in this session**: the shipped PEs are
+  stripped — `llvm-objdump -d --triple=thumbv7-unknown-windows-msvc lua-clang.exe` yields 101,456
+  lines and **zero** `setjmp` symbol hits — so reproducing it needs the map or PDB the earlier
+  session worked from.
+
+- **Disposition: DISCLOSE, no patch, and specifically NOT BUNDLED into the D42 PR.** One logical
+  change per PR; a second behavioural change folded into a one-line intrinsic fix is how a small
+  reviewable patch turns into a long argument. It is instead **named in the D42 PR's follow-up
+  comment**, because a reviewer who opens that function will see the second predicate, and it is
+  better that the author named it and said why it is out of scope than that the reviewer found it.
+
 ### D15 - compiler-rt builtins gap / `__aeabi_{u,}idivmod` * **CLOSED 2026-08-30: KEEP THE SHIM**
 
 - **VERDICT (scratch/W3/D15-VERDICT.md): keep `aeabi-shim.c`; rt1.1 ships no builtins archive.** This confirms rather than changes what rt1 shipped - `RELEASE-NOTES.md:60-62` already records that rt1 ships no builtins archive, gated off by `scratch/W3/div0_check.py` which fails it by design.
