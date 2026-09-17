@@ -1,0 +1,148 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hamed7ir <hamedghorbani17@live.com>
+Date: Tue, 8 Sep 2026 00:00:00 -0700
+Subject: [PATCH] [clang][ARM] Use sponentry for setjmp on Windows ARM32 (D42)
+
+Port of upstream/patches/0001-D42-arm32-windows-setjmp-sponentry.patch to the
+18.1.8 tree. The two source hunks are identical in content to the upstream draft;
+only the line numbers differ (1376/1393 here, 1780/1797 on main).
+
+On Windows, _setjmp and _setjmpex take a second argument, the frame, which the CRT
+stores into the jmp_buf and which longjmp later hands to RtlUnwindEx as the frame to
+unwind to. EmitMSVCRTSetJmp computes that argument with llvm.sponentry -- the stack
+pointer as it was on entry to the function -- but only when the target architecture
+is aarch64. 32-bit x86's _setjmp goes to _setjmp3 instead; every other case falls
+through to llvm.frameaddress(0) and passes the frame pointer, 32-bit Arm included.
+
+On 32-bit Arm the frame pointer is r11, and a function that sets one up leaves it
+pointing at its own saved slot. r11 and lr are the two highest-numbered registers in
+a callee-save push, so that slot is always the second from the top of the push:
+8 bytes below the stack pointer on entry. MSVC for the same target passes the stack
+pointer at function entry.
+
+MEASURED for this port (scratch/SJ1, and recorded in SETJMP-1-RESULTS.md):
+
+  - 7 clang builds spanning 18.1.8 through main all emit `mov r1, r11`, i.e.
+    r1 - entrySP = -8. Three MSVC ARM32 toolsets spanning 2018 to 2025 all emit
+    `add r1, sp, #N` resolving to r1 - entrySP = 0.
+  - The defect is not introduced by any rt1 patch: stock official 18.1.8 from
+    C:\Program Files\LLVM produces a `probe` function byte-identical to rt1.1's.
+  - No backend work sits behind this change. llvm/test/CodeGen/ARM/sponentry.ll
+    already exists IN THIS TREE, runs llc -mtriple=thumbv7-windows-msvc over IR that
+    hands llvm.sponentry to _setjmpex, and expects `add.w r1, r11, #8`. It PASSES on
+    the unpatched rt1.1 compiler. The backend half is not merely present, it is
+    already tested for this exact target; only the frontend condition was left behind.
+    (llvm.sponentry was added for AArch64 Windows in D53673, for this same argument.)
+
+The AArch64 half is left spelled getArch() == Triple::aarch64 rather than folded into
+Triple::isAArch64(), so the change is a pure extension: every triple that reaches this
+code keeps the value it gets today and only arm/armeb/thumb/thumbeb move. isAArch64()
+would also match aarch64_be, and that is not hypothetical -- clang today emits
+llvm.frameaddress for aarch64_be-pc-windows-msvc, so spelling it that way would quietly
+change codegen for a target this patch has no business touching.
+
+DELIBERATELY NOT TOUCHED: the callee selector in EmitBuiltinExpr, which sends aarch64
+to the _setjmpex kind and leaves 32-bit Arm on _setjmp. Post-patch ARM32 therefore
+still calls @_setjmp, and that is correct and intended here -- MSVC's own setjmp.h
+maps setjmp to _setjmp on every architecture unless <setjmpex.h> is included, and the
+CRT's _setjmp tail-jumps into setjmpex with r0/r1 intact when _setjmpexused is set.
+Changing that selector is a separate question (tracked as D43) and would widen a
+codegen fix into an unreviewed runtime-ABI change. Do not "fix" it while here.
+
+The test's ARM32 CHECK block is written from measured ARM32 output, NOT copied from the
+AARCH64 block: the ARM32 label carries arm_aapcs_vfpcc and the callee is @_setjmp, not
+@_setjmpex. Both armv7 and thumbv7 RUN lines are present because the new condition has
+two arms -- armv7-*-windows-msvc canonicalises to Triple::thumb, so isThumb() is the
+load-bearing half, and a test exercising only one arm would let the other be deleted
+green.
+
+SEEN TO FAIL BEFORE SEEN TO PASS. On the unpatched compiler (build/bin/clang.exe,
+sha256 f3541308...), the test's 10 RUN lines were executed individually from the
+shipped file: the 6 pre-existing lines PASS and all 4 new ARM32 lines FAIL, each on
+`%0 = call ptr @llvm.frameaddress.p0(i32 0)` where the ARM32 prefix requires
+@llvm.sponentry.p0(). Evidence: scratch/SJ2/must-fail/UNPATCHED-summary.txt.
+
+DIFFERENCE FROM THE UPSTREAM DRAFT: that draft also edits clang/docs/ReleaseNotes.md.
+This port omits it. 18.1.8 ships ReleaseNotes.rst rather than .md, and none of rt1's
+patches 0001-0009 touch release notes -- rt1 is a frozen one-shot overlay, not a
+release line. The note belongs to the upstream filing, which already carries it.
+
+Found on 32-bit Windows on Arm, where a longjmp in a program built with clang-cl dies
+with STATUS_BAD_STACK (0xC0000028) on device while the same program built with MSVC
+runs to completion.
+
+Assisted-by: Claude Opus 5 (Anthropic)
+---
+ clang/lib/CodeGen/CGBuiltin.cpp | 11 +++++++----
+ clang/test/CodeGen/ms-setjmp.c  | 14 ++++++++++++++
+ 2 files changed, 21 insertions(+), 4 deletions(-)
+
+diff --git a/clang/lib/CodeGen/CGBuiltin.cpp b/clang/lib/CodeGen/CGBuiltin.cpp
+--- a/clang/lib/CodeGen/CGBuiltin.cpp
++++ b/clang/lib/CodeGen/CGBuiltin.cpp
+@@ -1376,9 +1376,11 @@
+ };
+ }
+ 
+-/// MSVC handles setjmp a bit differently on different platforms. On every
+-/// architecture except 32-bit x86, the frame address is passed. On x86, extra
+-/// parameters can be passed as variadic arguments, but we always pass none.
++/// MSVC handles setjmp a bit differently on different platforms. On 32-bit x86
++/// extra parameters can be passed as variadic arguments, but we always pass
++/// none. Everywhere else a frame value is passed: the stack pointer as it was
++/// on entry to the function for AArch64 and 32-bit Arm, and the frame address
++/// for the rest.
+ static RValue EmitMSVCRTSetJmp(CodeGenFunction &CGF, MSVCSetJmpKind SJKind,
+                                const CallExpr *E) {
+   llvm::Value *Arg1 = nullptr;
+@@ -1393,7 +1395,8 @@
+   } else {
+     Name = SJKind == MSVCSetJmpKind::_setjmp ? "_setjmp" : "_setjmpex";
+     Arg1Ty = CGF.Int8PtrTy;
+-    if (CGF.getTarget().getTriple().getArch() == llvm::Triple::aarch64) {
++    const llvm::Triple &T = CGF.getTarget().getTriple();
++    if (T.getArch() == llvm::Triple::aarch64 || T.isARM() || T.isThumb()) {
+       Arg1 = CGF.Builder.CreateCall(
+           CGF.CGM.getIntrinsic(Intrinsic::sponentry, CGF.AllocaInt8PtrTy));
+     } else
+diff --git a/clang/test/CodeGen/ms-setjmp.c b/clang/test/CodeGen/ms-setjmp.c
+--- a/clang/test/CodeGen/ms-setjmp.c
++++ b/clang/test/CodeGen/ms-setjmp.c
+@@ -1,9 +1,13 @@
+ // RUN: %clang_cc1 -fms-extensions -DDECLARE_SETJMP -triple i686-windows-msvc   -emit-llvm %s -o - | FileCheck --check-prefix=I386 %s
+ // RUN: %clang_cc1 -fms-extensions -DDECLARE_SETJMP -triple x86_64-windows-msvc -emit-llvm %s -o - | FileCheck --check-prefix=X64 %s
+ // RUN: %clang_cc1 -fms-extensions -DDECLARE_SETJMP -triple aarch64-windows-msvc -emit-llvm %s -o - | FileCheck --check-prefix=AARCH64 %s
++// RUN: %clang_cc1 -fms-extensions -DDECLARE_SETJMP -triple thumbv7-windows-msvc -emit-llvm %s -o - | FileCheck --check-prefix=ARM32 %s
++// RUN: %clang_cc1 -fms-extensions -DDECLARE_SETJMP -triple armv7-windows-msvc   -emit-llvm %s -o - | FileCheck --check-prefix=ARM32 %s
+ // RUN: %clang_cc1 -fms-extensions -triple i686-windows-msvc -Wno-implicit-function-declaration -emit-llvm %s -o - | FileCheck --check-prefix=I386 %s
+ // RUN: %clang_cc1 -fms-extensions -triple x86_64-windows-msvc -Wno-implicit-function-declaration -emit-llvm %s -o - | FileCheck --check-prefix=X64 %s
+ // RUN: %clang_cc1 -fms-extensions -triple aarch64-windows-msvc -Wno-implicit-function-declaration -emit-llvm %s -o - | FileCheck --check-prefix=AARCH64 %s
++// RUN: %clang_cc1 -fms-extensions -triple thumbv7-windows-msvc -Wno-implicit-function-declaration -emit-llvm %s -o - | FileCheck --check-prefix=ARM32 %s
++// RUN: %clang_cc1 -fms-extensions -triple armv7-windows-msvc -Wno-implicit-function-declaration -emit-llvm %s -o - | FileCheck --check-prefix=ARM32 %s
+ typedef char jmp_buf[1];
+ 
+ #ifdef DECLARE_SETJMP
+@@ -28,6 +32,11 @@
+   // AARCH64:       %[[addr:.*]] = call ptr @llvm.sponentry.p0()
+   // AARCH64:       %[[call:.*]] = call i32 @_setjmpex(ptr @jb, ptr %[[addr]])
+   // AARCH64-NEXT:  ret i32 %[[call]]
++
++  // ARM32-LABEL: define dso_local arm_aapcs_vfpcc i32 @test_setjmp
++  // ARM32:       %[[addr:.*]] = call ptr @llvm.sponentry.p0()
++  // ARM32:       %[[call:.*]] = call arm_aapcs_vfpcc i32 @_setjmp(ptr @jb, ptr %[[addr]])
++  // ARM32-NEXT:  ret i32 %[[call]]
+ }
+ 
+ int test_setjmpex(void) {
+@@ -41,4 +50,9 @@
+   // AARCH64:       %[[addr:.*]] = call ptr @llvm.sponentry.p0()
+   // AARCH64:       %[[call:.*]] = call i32 @_setjmpex(ptr @jb, ptr %[[addr]])
+   // AARCH64-NEXT:  ret i32 %[[call]]
++
++  // ARM32-LABEL: define dso_local arm_aapcs_vfpcc i32 @test_setjmpex
++  // ARM32:       %[[addr:.*]] = call ptr @llvm.sponentry.p0()
++  // ARM32:       %[[call:.*]] = call arm_aapcs_vfpcc i32 @_setjmpex(ptr @jb, ptr %[[addr]])
++  // ARM32-NEXT:  ret i32 %[[call]]
+ }
+-- 
+2.53.0.windows.3

@@ -1,0 +1,179 @@
+rt2 — MODIFICATION NOTICE
+=========================
+
+This package contains MODIFIED binaries built from the LLVM Project.
+
+Apache License v2.0 with LLVM Exceptions, section 4(b) requires that modified files
+carry prominent notices stating that they were changed. This file is that notice, and
+it applies to every executable in bin/.
+
+
+WHAT THIS IS
+------------
+
+rt2 is a COMPLETE, SELF-CONTAINED toolchain for compiling C and C++ for 32-bit ARM
+Windows (thumbv7) with clang-cl and lld-link. It is LLVM 23.1.1 plus six patches.
+
+It is NOT an overlay. That is the difference from rt1, rt1.1 and rt1.2, which are
+nine-driver overlays onto the official LLVM 18.1.8 win64 package. There is no official
+23.1.1 package to overlay onto for this purpose, and rt2 needs far fewer patches, so it
+ships whole.
+
+What is in this package (351 files):
+
+  bin/                25 tools, rebuilt -- these are the modified files this notice is
+                      about; plus 8 Microsoft VC runtime DLLs, which are NOT ours and
+                      NOT modified (see THE VC RUNTIME below)
+  lib/clang/23/include/   303 resource headers, matching the rebuilt clang
+                      NOTE the 23, not 18. Anything that hardcodes a resource
+                      directory of 18 will find nothing here.
+  patches/            rt2-vs-23.1.1.patch -- the COMPLETE diff from pristine
+                      llvmorg-23.1.1 to rt2, generated from the two source trees
+                      and verified by applying it to a fresh 23.1.1 and comparing
+                      the result file for file. This is what rt2 was built from.
+                      patches/origin/ holds the six ORIGINAL 18.x-targeted rt1
+                      patches, kept for their defect analysis; they are NOT what
+                      rt2 was built from and their lit tests will NOT pass here.
+                      See patches/origin/README.txt.
+  runtime/            4 files: aeabi-shim.c and a prebuilt aeabi-shim.lib /
+                      aeabi-shim.obj for ARM32, plus a README saying exactly when
+                      they are needed. These are the only ARM32 TARGET binaries in
+                      the package; everything else here is the x64 host toolchain.
+                      Nothing links them for you -- read the README first.
+  RELEASE-NOTES.md    what rt2 is, what it fixes, and -- at length -- what has NOT
+                      been measured about it
+  LICENSE.TXT, MODIFICATIONS.txt
+
+  Upstream base : llvmorg-23.1.1
+                  source tarball sha256
+                  ebe9be46fe8756d58c5b198ffad0fa2a766257add81a4dc52179bfacc7888ee6
+                  verified against the published digest before the build
+
+  rt2 build     : LLVM 23.1.1 plus the six patches in patches/, built from the
+                  extracted release tarball. There is no rt2 git repository, so the
+                  binaries carry the upstream tag as their revision and the vendor
+                  string is what distinguishes them from stock.
+
+  rt2 is a ONE-SHOT RELEASE, like rt1 before it. No rebases, no version bumps, no
+  maintenance stream. If you need a maintained toolchain, use an official LLVM release.
+
+
+HOW TO TELL THIS IS rt2 AND NOT STOCK LLVM 23.1.1
+-------------------------------------------------
+
+READ THIS ONE CAREFULLY, because rt2 and stock 23.1.1 report the same LLVM version.
+
+  the 4 clang drivers  --version prints "Varan clang version 23.1.1-rt2".
+                       Stock upstream prints "clang version 23.1.1" with no vendor
+                       and no suffix.
+  the 5 lld drivers    print "Varan LLD 23.1.1". Stock prints "LLD 23.1.1".
+                       lld.exe --version prints NOTHING and returns 1 with a usage
+                       line on stderr, because lld.exe is a multiplexer, not a
+                       linker driver -- that is correct behaviour, not a fault.
+  the 16 llvm-* tools  print "LLVM version 23.1.1-rt2".
+
+The distinguishing string is embedded in all 25. To verify a binary, search its bytes
+rather than trusting --version:
+
+    findstr /M /C:"23.1.1-rt2" <binary>          (cmd.exe)
+    grep -ac 23.1.1-rt2 <binary>                 (git-bash/WSL)
+
+AND CHECK THE OTHER HALF. No rt1-family commit may be present:
+
+    findstr /M /C:"83c117cad0a9dee89e6daf6821c49156a3c562c0" <binary>   -> no match
+    grep -ac 83c117cad0a9dee89e6daf6821c49156a3c562c0 <binary>         -> 0
+
+That second check is not decoration. An earlier rt2 build carried NO distinguishing
+string at all -- it reported "clang version 23.1.1 (llvmorg-23.1.1)", character for
+character what stock upstream reports. A presence-only test against the upstream tag
+would have passed on stock LLVM. Presence without absence, and a token that stock also
+carries, cannot tell two toolchains apart.
+
+A binary that contains neither that string nor the matching --version output is not
+from this release.
+
+
+WHAT WAS CHANGED
+----------------
+
+Six changes, shipped as one verified diff in patches/rt2-vs-23.1.1.patch. All six are ours.
+
+⚠ TWO OF THEM ARE NOT WHAT rt1 SHIPPED. 0004 was re-anchored because 23.x renamed
+the parameter (RegNum -> Reg, Reg.id()). 0007 has THREE of rt1's four hunks
+DELIBERATELY ABSENT: they thread an isMustTail parameter through
+IsEligibleForTailCallOptimization, and 23.1.1 passes CallLoweringInfo into that
+function instead, so there is nothing to thread; its surviving hunk is also
+tightened. The first cut of this package shipped rt1's 18.x diffs unchanged,
+which described changes that are not in these binaries. That is corrected.
+
+  0002  lld/COFF: a locally defined dllimport function got its __imp_ pointer written
+        with bit 0 clear, so an indirect call through the slot requested ARM state on
+        a Thumb-only device.
+  0003  ARM: registers forwarded through a musttail call were not modelled as live, so
+        a vcall thunk could use an argument register as scratch.
+  0004  MC/CodeView: a tuple-register DBG_VALUE aborted the backend with "unknown
+        codeview register".
+  0005  Tests for the this-adjusting thunk cases in 0003.
+  0007  ARM: a musttail vararg forwarder that also calls va_start aborted the backend.
+  0010  clang: _setjmp on Windows ARM32 was handed the frame pointer instead of the
+        entry stack pointer, so longjmp died STATUS_BAD_STACK.
+
+WHY ONLY SIX, WHEN rt1.2 CARRIES TEN
+
+Four of rt1's patches, and one candidate it could not fix at all, were MEASURED
+unnecessary on 23.x -- upstream had already fixed them:
+
+  0001  ARM frame split-push               fixed upstream
+  0006  MS-layout padding diagnostics      fixed upstream
+  0008  -fdump-record-layouts-complete     fixed upstream
+  0009  ARM32 Windows SEH                  fixed upstream (and it was the largest
+                                           patch in the rt1 series, 75,868 bytes)
+  D37   musttail to an sret function       fixed upstream; rt1.2 CANNOT fix it
+
+Each of those was measured with an armed instrument -- a defective arm and a fixed arm
+both present -- rather than assumed: 11 of 11 rows measured. The full table lives in
+this project's private working repository and is NOT part of this package or the public
+repository; RELEASE-NOTES.md carries its published summary.
+
+0002 IS CARRIED ONLY BECAUSE NOBODY BACKPORTED IT. The fix is merged on LLVM main as
+bfaec6c07 and release/23.x branched before it, so it is in no released 23.x. If it is
+ever backported, rt2 would need five patches, not six.
+
+
+THE VC RUNTIME, AND WHY THIS PACKAGE SHIPS EIGHT MICROSOFT DLLs
+---------------------------------------------------------------
+
+  concrt140.dll   msvcp140.dll     msvcp140_1.dll             msvcp140_2.dll
+  vcruntime140.dll  vcruntime140_1.dll  msvcp140_atomic_wait.dll
+  msvcp140_codecvt_ids.dll
+
+These tools are built with the VS2022 14.44 toolset and import MSVCP140.dll. Shipping
+the matching redistributable means the package runs on its own terms rather than
+depending on what the host happens to have installed.
+
+They are MICROSOFT's redistributable files, supplied under the Visual Studio
+redistribution terms. They are NOT covered by the Apache-2.0 licence in LICENSE.TXT,
+they are not modified, and no copyright in them is claimed here. The official LLVM
+Windows packages ship the same eight for the same reason.
+
+If you would rather not take Microsoft binaries from us, delete all eight from bin/ and
+every tool will resolve your system copy instead -- provided it is 14.44 or newer.
+
+
+WHAT WAS NOT CHANGED
+--------------------
+
+No layout, ABI or calling-convention behaviour was altered to "fix" a difference from
+MSVC. Where clang-cl and MSVC disagree, this release documents the difference rather
+than papering over it. Changing layout would desync these binaries from the MSVC CRT
+and from every MSVC-built library in a consumer's link, which is worse than the
+difference itself.
+
+
+NO WARRANTY
+-----------
+
+Supplied as-is under the terms of the LICENSE.TXT beside this file. This is a one-shot
+community release: no updates, no rebases, no version bumps planned. Read
+RELEASE-NOTES.md before using it for anything you care about -- in particular its
+"What has NOT been measured" section, which is long on purpose.
