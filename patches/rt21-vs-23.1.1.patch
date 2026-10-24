@@ -1,0 +1,3380 @@
+rt2.1 (fixed, BATCH-RT21-FIX-1) = llvmorg-23.1.1 + LLVM patches 0002 0003 0004 0005 0007 0010 0011
+                                   + 0012 0013 0014 0015 0016 0017 0018 0019 0020
+
+Generated from the source tree, not written by hand, and verified by applying it to fresh copies of
+llvmorg-23.1.1's files and comparing the result to the fixed rt2.1 source, file for file.
+
+The version string stays 23.1.1-rt2.1.  The revision -- the text in parentheses after it -- is the first 40 hex
+digits of the sha256 of THIS FILE: the shipped rt2.1 is a2c87785524736693e171d1a82d5aecf8c2203ff; the fixed build
+carries this file's own hash.  Hash the file you received and compare.
+
+--- a/clang/include/clang/Basic/BuiltinsARM.def
++++ b/clang/include/clang/Basic/BuiltinsARM.def
+@@ -223,6 +223,44 @@
+ LANGBUILTIN(_MoveToCoprocessor, "vUiIUiIUiIUiIUiIUi", "", ALL_MS_LANGUAGES)
+ LANGBUILTIN(_MoveToCoprocessor2, "vUiIUiIUiIUiIUiIUi", "", ALL_MS_LANGUAGES)
+ 
++TARGET_HEADER_BUILTIN(_ReadBarrier,      "v", "nh", INTRIN_H, ALL_MS_LANGUAGES, "")
++TARGET_HEADER_BUILTIN(_ReadWriteBarrier, "v", "nh", INTRIN_H, ALL_MS_LANGUAGES, "")
++TARGET_HEADER_BUILTIN(_WriteBarrier,     "v", "nh", INTRIN_H, ALL_MS_LANGUAGES, "")
++
++// MSVC ARM intrinsics that cl expands inline (the AArch64 set plus _MulHigh/_MulUnsignedHigh).
++TARGET_HEADER_BUILTIN(_AddressOfReturnAddress, "v*", "nh", INTRIN_H, ALL_MS_LANGUAGES, "")
++
++TARGET_HEADER_BUILTIN(_MulHigh,         "NiNiNi",    "nch", INTRIN_H, ALL_MS_LANGUAGES, "")
++TARGET_HEADER_BUILTIN(_MulUnsignedHigh, "UNiUNiUNi", "nch", INTRIN_H, ALL_MS_LANGUAGES, "")
++
++TARGET_HEADER_BUILTIN(_CountLeadingOnes,     "UiUNi",  "nch", INTRIN_H, ALL_MS_LANGUAGES, "")
++TARGET_HEADER_BUILTIN(_CountLeadingOnes64,   "UiULLi", "nch", INTRIN_H, ALL_MS_LANGUAGES, "")
++TARGET_HEADER_BUILTIN(_CountLeadingSigns,    "UiNi",   "nch", INTRIN_H, ALL_MS_LANGUAGES, "")
++TARGET_HEADER_BUILTIN(_CountLeadingSigns64,  "UiLLi",  "nch", INTRIN_H, ALL_MS_LANGUAGES, "")
++TARGET_HEADER_BUILTIN(_CountLeadingZeros,    "UiUNi",  "nch", INTRIN_H, ALL_MS_LANGUAGES, "")
++TARGET_HEADER_BUILTIN(_CountLeadingZeros64,  "UiULLi", "nch", INTRIN_H, ALL_MS_LANGUAGES, "")
++TARGET_HEADER_BUILTIN(_CountOneBits,         "UiUNi",  "nch", INTRIN_H, ALL_MS_LANGUAGES, "")
++TARGET_HEADER_BUILTIN(_CountOneBits64,       "UiULLi", "nch", INTRIN_H, ALL_MS_LANGUAGES, "")
++TARGET_HEADER_BUILTIN(_CountTrailingZeros,   "UiUNi",  "nch", INTRIN_H, ALL_MS_LANGUAGES, "")
++TARGET_HEADER_BUILTIN(_CountTrailingZeros64, "UiULLi", "nch", INTRIN_H, ALL_MS_LANGUAGES, "")
++
++TARGET_HEADER_BUILTIN(_CopyDoubleFromInt64, "dLLi", "nch", INTRIN_H, ALL_MS_LANGUAGES, "")
++TARGET_HEADER_BUILTIN(_CopyFloatFromInt32,  "fi",   "nch", INTRIN_H, ALL_MS_LANGUAGES, "")
++TARGET_HEADER_BUILTIN(_CopyInt32FromFloat,  "if",   "nch", INTRIN_H, ALL_MS_LANGUAGES, "")
++TARGET_HEADER_BUILTIN(_CopyInt64FromDouble, "LLid", "nch", INTRIN_H, ALL_MS_LANGUAGES, "")
++
++TARGET_HEADER_BUILTIN(_InterlockedAdd,        "NiNiD*Ni",    "nh", INTRIN_H, ALL_MS_LANGUAGES, "")
++TARGET_HEADER_BUILTIN(_InterlockedAdd_acq,    "NiNiD*Ni",    "nh", INTRIN_H, ALL_MS_LANGUAGES, "")
++TARGET_HEADER_BUILTIN(_InterlockedAdd_nf,     "NiNiD*Ni",    "nh", INTRIN_H, ALL_MS_LANGUAGES, "")
++TARGET_HEADER_BUILTIN(_InterlockedAdd_rel,    "NiNiD*Ni",    "nh", INTRIN_H, ALL_MS_LANGUAGES, "")
++TARGET_HEADER_BUILTIN(_InterlockedAdd64,      "LLiLLiD*LLi", "nh", INTRIN_H, ALL_MS_LANGUAGES, "")
++TARGET_HEADER_BUILTIN(_InterlockedAdd64_acq,  "LLiLLiD*LLi", "nh", INTRIN_H, ALL_MS_LANGUAGES, "")
++TARGET_HEADER_BUILTIN(_InterlockedAdd64_nf,   "LLiLLiD*LLi", "nh", INTRIN_H, ALL_MS_LANGUAGES, "")
++TARGET_HEADER_BUILTIN(_InterlockedAdd64_rel,  "LLiLLiD*LLi", "nh", INTRIN_H, ALL_MS_LANGUAGES, "")
++
++TARGET_HEADER_BUILTIN(_ReadStatusReg, "ii",   "nh", INTRIN_H, ALL_MS_LANGUAGES, "")
++TARGET_HEADER_BUILTIN(__prefetch,     "vvC*", "nh", INTRIN_H, ALL_MS_LANGUAGES, "")
++
+ TARGET_HEADER_BUILTIN(_BitScanForward, "UcUNi*UNi", "nh", INTRIN_H, ALL_MS_LANGUAGES, "")
+ TARGET_HEADER_BUILTIN(_BitScanReverse, "UcUNi*UNi", "nh", INTRIN_H, ALL_MS_LANGUAGES, "")
+ TARGET_HEADER_BUILTIN(_BitScanForward64, "UcUNi*ULLi", "nh", INTRIN_H, ALL_MS_LANGUAGES, "")
+--- a/clang/include/clang/Basic/DiagnosticSemaKinds.td
++++ b/clang/include/clang/Basic/DiagnosticSemaKinds.td
+@@ -3587,7 +3587,7 @@
+   "multiple '%0' attributes specified">;
+ def warn_deprecated_capture_by_special_entity : Warning<
+   "'lifetime_capture_by(%0)' is deprecated; use '%1' instead">,
+-  InGroup<DeprecatedAttributes>;
++  InGroup<DeprecatedAttributes>, DefaultIgnore;
+ 
+ def err_init_method_bad_return_type : Error<
+   "init methods must return an object pointer type, not %0">;
+--- a/clang/lib/Basic/Targets/ARM.cpp
++++ b/clang/lib/Basic/Targets/ARM.cpp
+@@ -1450,6 +1450,10 @@
+   case CC_X86FastCall:
+   case CC_X86VectorCall:
+     return CCCR_Ignore;
++  // Windows on ARM always uses AAPCS-VFP, so pcs("aapcs-vfp") names the
++  // default convention; treat it as C, as the x86 conventions above are.
++  case CC_AAPCS_VFP:
++    return CCCR_Ignore;
+   case CC_C:
+   case CC_DeviceKernel:
+   case CC_PreserveMost:
+--- a/clang/lib/CodeGen/CGBuiltin.cpp
++++ b/clang/lib/CodeGen/CGBuiltin.cpp
+@@ -1725,9 +1725,11 @@
+ };
+ }
+ 
+-/// MSVC handles setjmp a bit differently on different platforms. On every
+-/// architecture except 32-bit x86, the frame address is passed. On x86, extra
+-/// parameters can be passed as variadic arguments, but we always pass none.
++/// MSVC handles setjmp a bit differently on different platforms. On 32-bit x86
++/// extra parameters can be passed as variadic arguments, but we always pass
++/// none. Everywhere else a frame value is passed: the stack pointer as it was
++/// on entry to the function for AArch64 and 32-bit Arm, and the frame address
++/// for the rest.
+ static RValue EmitMSVCRTSetJmp(CodeGenFunction &CGF, MSVCSetJmpKind SJKind,
+                                const CallExpr *E) {
+   llvm::Value *Arg1 = nullptr;
+@@ -1742,7 +1744,8 @@
+   } else {
+     Name = SJKind == MSVCSetJmpKind::_setjmp ? "_setjmp" : "_setjmpex";
+     Arg1Ty = CGF.Int8PtrTy;
+-    if (CGF.getTarget().getTriple().getArch() == llvm::Triple::aarch64) {
++    const llvm::Triple &T = CGF.getTarget().getTriple();
++    if (T.getArch() == llvm::Triple::aarch64 || T.isARM() || T.isThumb()) {
+       Arg1 = CGF.Builder.CreateCall(
+           CGF.CGM.getIntrinsic(Intrinsic::sponentry, CGF.AllocaInt8PtrTy));
+     } else
+--- a/clang/lib/CodeGen/TargetBuiltins/ARM.cpp
++++ b/clang/lib/CodeGen/TargetBuiltins/ARM.cpp
+@@ -2125,6 +2125,156 @@
+     return Builder.CreateCall(Emit);
+   }
+ 
++  if (BuiltinID == clang::ARM::BI_ReadBarrier ||
++      BuiltinID == clang::ARM::BI_ReadWriteBarrier ||
++      BuiltinID == clang::ARM::BI_WriteBarrier)
++    return Builder.CreateFence(llvm::AtomicOrdering::SequentiallyConsistent,
++                               llvm::SyncScope::SingleThread);
++
++  // MSVC intrinsics that cl expands inline on ARM. Each mirrors the AArch64
++  // lowering in EmitAArch64BuiltinExpr.
++  if (BuiltinID == clang::ARM::BI_AddressOfReturnAddress) {
++    llvm::Function *F =
++        CGM.getIntrinsic(Intrinsic::addressofreturnaddress, AllocaInt8PtrTy);
++    return Builder.CreateCall(F);
++  }
++
++  if (BuiltinID == clang::ARM::BI_MulHigh ||
++      BuiltinID == clang::ARM::BI_MulUnsignedHigh) {
++    // The high 32 bits of the 64-bit product: smull/umull.
++    bool IsSigned = BuiltinID == clang::ARM::BI_MulHigh;
++    llvm::Type *ResType = ConvertType(E->getType());
++    Value *LHS =
++        Builder.CreateIntCast(EmitScalarExpr(E->getArg(0)), Int64Ty, IsSigned);
++    Value *RHS =
++        Builder.CreateIntCast(EmitScalarExpr(E->getArg(1)), Int64Ty, IsSigned);
++    Value *HigherBits;
++    if (IsSigned)
++      HigherBits = Builder.CreateAShr(Builder.CreateNSWMul(LHS, RHS), 32);
++    else
++      HigherBits = Builder.CreateLShr(Builder.CreateNUWMul(LHS, RHS), 32);
++    return Builder.CreateIntCast(HigherBits, ResType, IsSigned);
++  }
++
++  if (BuiltinID == clang::ARM::BI_CountLeadingOnes ||
++      BuiltinID == clang::ARM::BI_CountLeadingOnes64 ||
++      BuiltinID == clang::ARM::BI_CountLeadingZeros ||
++      BuiltinID == clang::ARM::BI_CountLeadingZeros64) {
++    Value *Arg = EmitScalarExpr(E->getArg(0));
++    llvm::Type *ArgType = Arg->getType();
++
++    if (BuiltinID == clang::ARM::BI_CountLeadingOnes ||
++        BuiltinID == clang::ARM::BI_CountLeadingOnes64)
++      Arg = Builder.CreateXor(Arg, Constant::getAllOnesValue(ArgType));
++
++    Function *F = CGM.getIntrinsic(Intrinsic::ctlz, ArgType);
++    Value *Result = Builder.CreateCall(F, {Arg, Builder.getInt1(false)});
++
++    if (BuiltinID == clang::ARM::BI_CountLeadingOnes64 ||
++        BuiltinID == clang::ARM::BI_CountLeadingZeros64)
++      Result = Builder.CreateTrunc(Result, Builder.getInt32Ty());
++    return Result;
++  }
++
++  if (BuiltinID == clang::ARM::BI_CountLeadingSigns ||
++      BuiltinID == clang::ARM::BI_CountLeadingSigns64) {
++    Value *Arg = EmitScalarExpr(E->getArg(0));
++    Function *F = (BuiltinID == clang::ARM::BI_CountLeadingSigns)
++                      ? CGM.getIntrinsic(Intrinsic::arm_cls)
++                      : CGM.getIntrinsic(Intrinsic::arm_cls64);
++    return Builder.CreateCall(F, Arg, "cls");
++  }
++
++  if (BuiltinID == clang::ARM::BI_CountOneBits ||
++      BuiltinID == clang::ARM::BI_CountOneBits64) {
++    Value *ArgValue = EmitScalarExpr(E->getArg(0));
++    llvm::Type *ArgType = ArgValue->getType();
++    Function *F = CGM.getIntrinsic(Intrinsic::ctpop, ArgType);
++
++    Value *Result = Builder.CreateCall(F, ArgValue);
++    if (BuiltinID == clang::ARM::BI_CountOneBits64)
++      Result = Builder.CreateTrunc(Result, Builder.getInt32Ty());
++    return Result;
++  }
++
++  if (BuiltinID == clang::ARM::BI_CountTrailingZeros ||
++      BuiltinID == clang::ARM::BI_CountTrailingZeros64) {
++    Value *ArgValue = EmitScalarExpr(E->getArg(0));
++    llvm::Type *ArgType = ArgValue->getType();
++    Function *F = CGM.getIntrinsic(Intrinsic::cttz, ArgType);
++
++    // MSVC's rbit + clz returns the bit width for 0, so zero is not poison.
++    Value *Result = Builder.CreateCall(F, {ArgValue, Builder.getInt1(false)});
++    if (BuiltinID == clang::ARM::BI_CountTrailingZeros64)
++      Result = Builder.CreateTrunc(Result, Builder.getInt32Ty());
++    return Result;
++  }
++
++  if (BuiltinID == clang::ARM::BI_CopyDoubleFromInt64 ||
++      BuiltinID == clang::ARM::BI_CopyFloatFromInt32 ||
++      BuiltinID == clang::ARM::BI_CopyInt32FromFloat ||
++      BuiltinID == clang::ARM::BI_CopyInt64FromDouble) {
++    Value *Arg = EmitScalarExpr(E->getArg(0));
++    llvm::Type *RetTy = ConvertType(E->getType());
++    return Builder.CreateBitCast(Arg, RetTy);
++  }
++
++  if (BuiltinID == clang::ARM::BI_InterlockedAdd ||
++      BuiltinID == clang::ARM::BI_InterlockedAdd_acq ||
++      BuiltinID == clang::ARM::BI_InterlockedAdd_nf ||
++      BuiltinID == clang::ARM::BI_InterlockedAdd_rel ||
++      BuiltinID == clang::ARM::BI_InterlockedAdd64 ||
++      BuiltinID == clang::ARM::BI_InterlockedAdd64_acq ||
++      BuiltinID == clang::ARM::BI_InterlockedAdd64_nf ||
++      BuiltinID == clang::ARM::BI_InterlockedAdd64_rel) {
++    Address DestAddr = CheckAtomicAlignment(*this, E);
++    Value *Val = EmitScalarExpr(E->getArg(1));
++    llvm::AtomicOrdering Ordering;
++    switch (BuiltinID) {
++    case clang::ARM::BI_InterlockedAdd:
++    case clang::ARM::BI_InterlockedAdd64:
++      Ordering = llvm::AtomicOrdering::SequentiallyConsistent;
++      break;
++    case clang::ARM::BI_InterlockedAdd_acq:
++    case clang::ARM::BI_InterlockedAdd64_acq:
++      Ordering = llvm::AtomicOrdering::Acquire;
++      break;
++    case clang::ARM::BI_InterlockedAdd_rel:
++    case clang::ARM::BI_InterlockedAdd64_rel:
++      Ordering = llvm::AtomicOrdering::Release;
++      break;
++    default:
++      Ordering = llvm::AtomicOrdering::Monotonic;
++      break;
++    }
++    // _InterlockedAdd returns the new value, not the old one.
++    AtomicRMWInst *RMWI =
++        Builder.CreateAtomicRMW(AtomicRMWInst::Add, DestAddr, Val, Ordering);
++    return Builder.CreateAdd(RMWI, Val);
++  }
++
++  if (BuiltinID == clang::ARM::BI_ReadStatusReg) {
++    // MSVC accepts 0 (APSR) and 1 (SPSR) only; Sema has checked the range.
++    LLVMContext &Context = CGM.getLLVMContext();
++    uint64_t SysReg =
++        E->getArg(0)->EvaluateKnownConstInt(getContext()).getZExtValue();
++    llvm::Metadata *Ops[] = {
++        llvm::MDString::get(Context, SysReg ? "spsr" : "apsr")};
++    llvm::Value *Metadata =
++        llvm::MetadataAsValue::get(Context, llvm::MDNode::get(Context, Ops));
++    llvm::Function *F = CGM.getIntrinsic(Intrinsic::read_register, {Int32Ty});
++    return Builder.CreateCall(F, Metadata);
++  }
++
++  if (BuiltinID == clang::ARM::BI__prefetch) {
++    Value *Address = EmitScalarExpr(E->getArg(0));
++    Value *RW = llvm::ConstantInt::get(Int32Ty, 0);
++    Value *Locality = ConstantInt::get(Int32Ty, 3);
++    Value *Data = llvm::ConstantInt::get(Int32Ty, 1);
++    Function *F = CGM.getIntrinsic(Intrinsic::prefetch, Address->getType());
++    return Builder.CreateCall(F, {Address, RW, Locality, Data});
++  }
++
+   if (BuiltinID == clang::ARM::BI__builtin_arm_dbg) {
+     Value *Option = EmitScalarExpr(E->getArg(0));
+     return Builder.CreateCall(CGM.getIntrinsic(Intrinsic::arm_dbg), Option);
+--- a/clang/lib/Headers/intrin.h
++++ b/clang/lib/Headers/intrin.h
+@@ -373,6 +373,38 @@
+ #endif
+ 
+ /*----------------------------------------------------------------------------*\
++|* MS ARM specific
++\*----------------------------------------------------------------------------*/
++#if defined(__arm__)
++long _InterlockedAdd(long volatile *, long);
++long _InterlockedAdd_acq(long volatile *, long);
++long _InterlockedAdd_nf(long volatile *, long);
++long _InterlockedAdd_rel(long volatile *, long);
++__int64 _InterlockedAdd64(__int64 volatile *, __int64);
++__int64 _InterlockedAdd64_acq(__int64 volatile *, __int64);
++__int64 _InterlockedAdd64_nf(__int64 volatile *, __int64);
++__int64 _InterlockedAdd64_rel(__int64 volatile *, __int64);
++int _ReadStatusReg(int);
++
++long _MulHigh(long, long);
++unsigned long _MulUnsignedHigh(unsigned long, unsigned long);
++
++double _CopyDoubleFromInt64(__int64);
++float _CopyFloatFromInt32(__int32);
++__int32 _CopyInt32FromFloat(float);
++__int64 _CopyInt64FromDouble(double);
++
++unsigned int _CountLeadingOnes(unsigned long);
++unsigned int _CountLeadingOnes64(unsigned __int64);
++unsigned int _CountLeadingSigns(long);
++unsigned int _CountLeadingSigns64(__int64);
++unsigned int _CountOneBits(unsigned long);
++unsigned int _CountOneBits64(unsigned __int64);
++
++void __cdecl __prefetch(const void *);
++#endif
++
++/*----------------------------------------------------------------------------*\
+ |* MS AArch64 specific
+ \*----------------------------------------------------------------------------*/
+ #if defined(__aarch64__) || defined(__arm64ec__)
+--- a/clang/lib/Headers/intrin0.h
++++ b/clang/lib/Headers/intrin0.h
+@@ -27,6 +27,13 @@
+ unsigned char _BitScanReverse(unsigned long *_Index, unsigned long _Mask);
+ void _ReadWriteBarrier(void);
+ 
++#if defined(__arm__)
++unsigned int _CountLeadingZeros(unsigned long);
++unsigned int _CountLeadingZeros64(unsigned _int64);
++unsigned int _CountTrailingZeros(unsigned long);
++unsigned int _CountTrailingZeros64(unsigned __int64);
++#endif
++
+ #if defined(__aarch64__) || defined(__arm64ec__)
+ unsigned int _CountLeadingZeros(unsigned long);
+ unsigned int _CountLeadingZeros64(unsigned _int64);
+--- a/clang/lib/Sema/SemaARM.cpp
++++ b/clang/lib/Sema/SemaARM.cpp
+@@ -1073,6 +1073,8 @@
+     return false;
+   case ARM::BI__builtin_arm_ssat:
+     return SemaRef.BuiltinConstantArgRange(TheCall, 1, 1, 32);
++  case ARM::BI_ReadStatusReg:
++    return SemaRef.BuiltinConstantArgRange(TheCall, 0, 0, 1);
+   case ARM::BI__builtin_arm_usat:
+     return SemaRef.BuiltinConstantArgRange(TheCall, 1, 0, 31);
+   case ARM::BI__builtin_arm_ssat16:
+--- a/clang/test/CodeGen/arm-microsoft-intrinsics.c
++++ b/clang/test/CodeGen/arm-microsoft-intrinsics.c
+@@ -1,4 +1,4 @@
+-// RUN: %clang_cc1 -triple thumbv7-windows -fms-compatibility -emit-llvm -o - %s \
++// RUN: %clang_cc1 -triple thumbv7-windows -Wno-implicit-function-declaration -fms-compatibility -emit-llvm -o - %s \
+ // RUN:    | FileCheck %s -check-prefix CHECK-MSVC
+ 
+ // RUN: not %clang_cc1 -triple armv7-eabi -Werror -S -o /dev/null %s 2>&1 \
+@@ -40,3 +40,32 @@
+ // CHECK-MSVC: @llvm.arm.mcr2(i32 10, i32 7, i32 %{{[^,]*}}, i32 1, i32 0, i32 0)
+ // CHECK-EABI: error: call to undeclared function '_MoveToCoprocessor2'
+ 
++void check_ReadBarrier(void) {
++  _ReadBarrier();
++}
++
++// CHECK-MSVC-LABEL: @check_ReadBarrier(
++// CHECK-MSVC-NOT: call
++// CHECK-MSVC: fence syncscope("singlethread") seq_cst
++// CHECK-MSVC-NEXT: ret void
++// CHECK-EABI: error: call to undeclared function '_ReadBarrier'
++
++void check_ReadWriteBarrier(void) {
++  _ReadWriteBarrier();
++}
++
++// CHECK-MSVC-LABEL: @check_ReadWriteBarrier(
++// CHECK-MSVC-NOT: call
++// CHECK-MSVC: fence syncscope("singlethread") seq_cst
++// CHECK-MSVC-NEXT: ret void
++// CHECK-EABI: error: call to undeclared function '_ReadWriteBarrier'
++
++void check_WriteBarrier(void) {
++  _WriteBarrier();
++}
++
++// CHECK-MSVC-LABEL: @check_WriteBarrier(
++// CHECK-MSVC-NOT: call
++// CHECK-MSVC: fence syncscope("singlethread") seq_cst
++// CHECK-MSVC-NEXT: ret void
++// CHECK-EABI: error: call to undeclared function '_WriteBarrier'
+--- /dev/null
++++ b/clang/test/CodeGen/arm-windows-intrin-addressofreturnaddress.c
+@@ -0,0 +1,20 @@
++// RUN: %clang_cc1 -ffreestanding -fms-extensions -fms-compatibility -fms-compatibility-version=19.00 \
++// RUN:         -triple thumbv7--windows -emit-llvm %s -o - \
++// RUN:         | FileCheck %s --implicit-check-not=@_AddressOfReturnAddress
++
++// _AddressOfReturnAddress on ARM: the address of the slot holding the return
++// address. intrin.h declares it for every architecture, but it was not an ARM
++// builtin, so the call compiled to an external reference that cannot link.
++// The backend half (ISD::ADDROFRETURNADDR, with the LR spill a leaf needs) is
++// tested in llvm/test/CodeGen/ARM/addressofreturnaddress.ll, which comes with
++// the patch that completes it (rt2.1 0020; one upstream change with this one).
++
++// intrin.h needs size_t, but -ffreestanding prevents us from getting it from
++// stddef.h.  Work around it with this typedef.
++typedef __SIZE_TYPE__ size_t;
++#include <intrin.h>
++
++void *test_AddressOfReturnAddress(void) { return _AddressOfReturnAddress(); }
++// CHECK-LABEL: define dso_local {{.*}}ptr @test_AddressOfReturnAddress()
++// CHECK: [[R:%.*]] = call ptr @llvm.addressofreturnaddress.p0()
++// CHECK: ret ptr [[R]]
+--- /dev/null
++++ b/clang/test/CodeGen/arm-windows-intrin-copy.c
+@@ -0,0 +1,33 @@
++// RUN: %clang_cc1 -ffreestanding -fms-extensions -fms-compatibility -fms-compatibility-version=19.00 \
++// RUN:         -triple thumbv7--windows -emit-llvm %s -o - \
++// RUN:         | FileCheck %s --implicit-check-not=@_Copy
++
++// The _Copy* bit-pattern moves between integer and floating-point registers.
++// MSVC's ARM cl expands them to one vmov each; before this they were
++// undeclared on ARM.
++
++// intrin.h needs size_t, but -ffreestanding prevents us from getting it from
++// stddef.h.  Work around it with this typedef.
++typedef __SIZE_TYPE__ size_t;
++#include <intrin.h>
++
++double test_CopyDoubleFromInt64(__int64 x) { return _CopyDoubleFromInt64(x); }
++// CHECK-LABEL: @test_CopyDoubleFromInt64(
++// CHECK: [[R:%.*]] = bitcast i64 %{{.*}} to double
++// CHECK: ret double [[R]]
++
++float test_CopyFloatFromInt32(__int32 x) { return _CopyFloatFromInt32(x); }
++// CHECK-LABEL: @test_CopyFloatFromInt32(
++// CHECK: [[R:%.*]] = bitcast i32 %{{.*}} to float
++// CHECK: ret float [[R]]
++
++__int32 test_CopyInt32FromFloat(float x) { return _CopyInt32FromFloat(x); }
++// CHECK-LABEL: @test_CopyInt32FromFloat(
++// CHECK: [[R:%.*]] = bitcast float %{{.*}} to i32
++// CHECK: ret i32 [[R]]
++
++__int64 test_CopyInt64FromDouble(double x) { return _CopyInt64FromDouble(x); }
++// CHECK-LABEL: @test_CopyInt64FromDouble(
++// CHECK: [[R:%.*]] = bitcast double %{{.*}} to i64
++// CHECK: ret i64 [[R]]
++
+--- /dev/null
++++ b/clang/test/CodeGen/arm-windows-intrin-count.c
+@@ -0,0 +1,59 @@
++// RUN: %clang_cc1 -ffreestanding -fms-extensions -fms-compatibility -fms-compatibility-version=19.00 \
++// RUN:         -triple thumbv7--windows -emit-llvm %s -o - \
++// RUN:         | FileCheck %s --implicit-check-not=@_Count
++
++// The _Count* family, which MSVC's ARM cl expands inline (clz / rbit+clz /
++// the popcount sequence) and AArch64 clang already has. Before this they were
++// undeclared on ARM.
++
++// intrin.h needs size_t, but -ffreestanding prevents us from getting it from
++// stddef.h.  Work around it with this typedef.
++typedef __SIZE_TYPE__ size_t;
++#include <intrin.h>
++
++unsigned test_CountLeadingZeros(unsigned long x) { return _CountLeadingZeros(x); }
++// CHECK-LABEL: @test_CountLeadingZeros(
++// CHECK: call i32 @llvm.ctlz.i32(i32 %{{.*}}, i1 false)
++
++unsigned test_CountLeadingZeros64(unsigned __int64 x) { return _CountLeadingZeros64(x); }
++// CHECK-LABEL: @test_CountLeadingZeros64(
++// CHECK: [[R:%.*]] = call i64 @llvm.ctlz.i64(i64 %{{.*}}, i1 false)
++// CHECK: trunc i64 [[R]] to i32
++
++unsigned test_CountLeadingOnes(unsigned long x) { return _CountLeadingOnes(x); }
++// CHECK-LABEL: @test_CountLeadingOnes(
++// CHECK: [[N:%.*]] = xor i32 %{{.*}}, -1
++// CHECK: call i32 @llvm.ctlz.i32(i32 [[N]], i1 false)
++
++unsigned test_CountLeadingOnes64(unsigned __int64 x) { return _CountLeadingOnes64(x); }
++// CHECK-LABEL: @test_CountLeadingOnes64(
++// CHECK: [[N:%.*]] = xor i64 %{{.*}}, -1
++// CHECK: [[R:%.*]] = call i64 @llvm.ctlz.i64(i64 [[N]], i1 false)
++// CHECK: trunc i64 [[R]] to i32
++
++unsigned test_CountLeadingSigns(long x) { return _CountLeadingSigns(x); }
++// CHECK-LABEL: @test_CountLeadingSigns(
++// CHECK: call i32 @llvm.arm.cls(i32 %{{.*}})
++
++unsigned test_CountLeadingSigns64(__int64 x) { return _CountLeadingSigns64(x); }
++// CHECK-LABEL: @test_CountLeadingSigns64(
++// CHECK: call i32 @llvm.arm.cls64(i64 %{{.*}})
++
++unsigned test_CountOneBits(unsigned long x) { return _CountOneBits(x); }
++// CHECK-LABEL: @test_CountOneBits(
++// CHECK: call i32 @llvm.ctpop.i32(i32 %{{.*}})
++
++unsigned test_CountOneBits64(unsigned __int64 x) { return _CountOneBits64(x); }
++// CHECK-LABEL: @test_CountOneBits64(
++// CHECK: [[R:%.*]] = call i64 @llvm.ctpop.i64(i64 %{{.*}})
++// CHECK: trunc i64 [[R]] to i32
++
++unsigned test_CountTrailingZeros(unsigned long x) { return _CountTrailingZeros(x); }
++// CHECK-LABEL: @test_CountTrailingZeros(
++// CHECK: call i32 @llvm.cttz.i32(i32 %{{.*}}, i1 false)
++
++unsigned test_CountTrailingZeros64(unsigned __int64 x) { return _CountTrailingZeros64(x); }
++// CHECK-LABEL: @test_CountTrailingZeros64(
++// CHECK: [[R:%.*]] = call i64 @llvm.cttz.i64(i64 %{{.*}}, i1 false)
++// CHECK: trunc i64 [[R]] to i32
++
+--- /dev/null
++++ b/clang/test/CodeGen/arm-windows-intrin-interlockedadd.c
+@@ -0,0 +1,55 @@
++// RUN: %clang_cc1 -ffreestanding -fms-extensions -fms-compatibility -fms-compatibility-version=19.00 \
++// RUN:         -triple thumbv7--windows -emit-llvm %s -o - \
++// RUN:         | FileCheck %s --implicit-check-not=@_InterlockedAdd
++
++// _InterlockedAdd and its _acq/_nf/_rel and 64-bit forms. MSVC's ARM cl
++// expands them inline (ldrex/strex, dmb placed by the ordering) and they
++// return the NEW value. Before this they were undeclared on ARM.
++
++// intrin.h needs size_t, but -ffreestanding prevents us from getting it from
++// stddef.h.  Work around it with this typedef.
++typedef __SIZE_TYPE__ size_t;
++#include <intrin.h>
++
++long test_InterlockedAdd(long volatile *p, long v) { return _InterlockedAdd(p, v); }
++// CHECK-LABEL: @test_InterlockedAdd(
++// CHECK: [[OLD:%.*]] = atomicrmw add ptr %{{.*}}, i32 [[V:%.*]] seq_cst, align 4
++// CHECK: [[NEW:%.*]] = add i32 [[OLD]], [[V]]
++// CHECK: ret i32 [[NEW]]
++
++long test_InterlockedAdd_acq(long volatile *p, long v) { return _InterlockedAdd_acq(p, v); }
++// CHECK-LABEL: @test_InterlockedAdd_acq(
++// CHECK: [[OLD:%.*]] = atomicrmw add ptr %{{.*}}, i32 [[V:%.*]] acquire, align 4
++// CHECK: add i32 [[OLD]], [[V]]
++
++long test_InterlockedAdd_nf(long volatile *p, long v) { return _InterlockedAdd_nf(p, v); }
++// CHECK-LABEL: @test_InterlockedAdd_nf(
++// CHECK: [[OLD:%.*]] = atomicrmw add ptr %{{.*}}, i32 [[V:%.*]] monotonic, align 4
++// CHECK: add i32 [[OLD]], [[V]]
++
++long test_InterlockedAdd_rel(long volatile *p, long v) { return _InterlockedAdd_rel(p, v); }
++// CHECK-LABEL: @test_InterlockedAdd_rel(
++// CHECK: [[OLD:%.*]] = atomicrmw add ptr %{{.*}}, i32 [[V:%.*]] release, align 4
++// CHECK: add i32 [[OLD]], [[V]]
++
++__int64 test_InterlockedAdd64(__int64 volatile *p, __int64 v) { return _InterlockedAdd64(p, v); }
++// CHECK-LABEL: @test_InterlockedAdd64(
++// CHECK: [[OLD:%.*]] = atomicrmw add ptr %{{.*}}, i64 [[V:%.*]] seq_cst, align 8
++// CHECK: [[NEW:%.*]] = add i64 [[OLD]], [[V]]
++// CHECK: ret i64 [[NEW]]
++
++__int64 test_InterlockedAdd64_acq(__int64 volatile *p, __int64 v) { return _InterlockedAdd64_acq(p, v); }
++// CHECK-LABEL: @test_InterlockedAdd64_acq(
++// CHECK: [[OLD:%.*]] = atomicrmw add ptr %{{.*}}, i64 [[V:%.*]] acquire, align 8
++// CHECK: add i64 [[OLD]], [[V]]
++
++__int64 test_InterlockedAdd64_nf(__int64 volatile *p, __int64 v) { return _InterlockedAdd64_nf(p, v); }
++// CHECK-LABEL: @test_InterlockedAdd64_nf(
++// CHECK: [[OLD:%.*]] = atomicrmw add ptr %{{.*}}, i64 [[V:%.*]] monotonic, align 8
++// CHECK: add i64 [[OLD]], [[V]]
++
++__int64 test_InterlockedAdd64_rel(__int64 volatile *p, __int64 v) { return _InterlockedAdd64_rel(p, v); }
++// CHECK-LABEL: @test_InterlockedAdd64_rel(
++// CHECK: [[OLD:%.*]] = atomicrmw add ptr %{{.*}}, i64 [[V:%.*]] release, align 8
++// CHECK: add i64 [[OLD]], [[V]]
++
+--- /dev/null
++++ b/clang/test/CodeGen/arm-windows-intrin-mulhigh.c
+@@ -0,0 +1,43 @@
++// RUN: %clang_cc1 -ffreestanding -fms-extensions -fms-compatibility -fms-compatibility-version=19.00 \
++// RUN:         -triple thumbv7--windows -emit-llvm %s -o - \
++// RUN:         | FileCheck %s --implicit-check-not=@_MulHigh --implicit-check-not=@_MulUnsignedHigh
++// RUN: %clang_cc1 -ffreestanding -triple thumbv7-linux-gnueabihf -emit-llvm %s -o - \
++// RUN:         | FileCheck %s --check-prefix=NOMS
++
++// _MulHigh and _MulUnsignedHigh are the high 32 bits of the 64-bit product.
++// MSVC's ARM cl expands both inline (smull / umull); before this they were
++// undeclared on ARM and fxdiv.h's MSVC branch failed to compile.
++
++#ifdef _MSC_VER
++// intrin.h needs size_t, but -ffreestanding prevents us from getting it from
++// stddef.h.  Work around it with this typedef.
++typedef __SIZE_TYPE__ size_t;
++#include <intrin.h>
++
++long test_MulHigh(long a, long b) { return _MulHigh(a, b); }
++// CHECK-LABEL: define dso_local {{.*}}i32 @test_MulHigh(
++// CHECK: [[A:%.*]] = sext i32 %{{.*}} to i64
++// CHECK: [[B:%.*]] = sext i32 %{{.*}} to i64
++// CHECK: [[M:%.*]] = mul nsw i64 [[A]], [[B]]
++// CHECK: [[H:%.*]] = ashr i64 [[M]], 32
++// CHECK: [[R:%.*]] = trunc i64 [[H]] to i32
++// CHECK: ret i32 [[R]]
++
++unsigned long test_MulUnsignedHigh(unsigned long a, unsigned long b) {
++  return _MulUnsignedHigh(a, b);
++}
++// CHECK-LABEL: define dso_local {{.*}}i32 @test_MulUnsignedHigh(
++// CHECK: [[A:%.*]] = zext i32 %{{.*}} to i64
++// CHECK: [[B:%.*]] = zext i32 %{{.*}} to i64
++// CHECK: [[M:%.*]] = mul nuw i64 [[A]], [[B]]
++// CHECK: [[H:%.*]] = lshr i64 [[M]], 32
++// CHECK: [[R:%.*]] = trunc i64 [[H]] to i32
++// CHECK: ret i32 [[R]]
++#else
++// Without the Microsoft extensions the names are ordinary identifiers.
++unsigned long _MulUnsignedHigh(unsigned long a, unsigned long b) { return 42; }
++unsigned long use(unsigned long a) { return _MulUnsignedHigh(a, a); }
++// NOMS: define {{.*}}i32 @_MulUnsignedHigh(
++// NOMS: ret i32 42
++// NOMS: call {{.*}}i32 @_MulUnsignedHigh(
++#endif
+--- /dev/null
++++ b/clang/test/CodeGen/arm-windows-intrin-readstatusreg.c
+@@ -0,0 +1,28 @@
++// RUN: %clang_cc1 -ffreestanding -fms-extensions -fms-compatibility -fms-compatibility-version=19.00 \
++// RUN:         -triple thumbv7--windows -emit-llvm %s -o - \
++// RUN:         | FileCheck %s --implicit-check-not=@_ReadStatusReg --implicit-check-not=@__prefetch
++
++// _ReadStatusReg and __prefetch on ARM. MSVC's ARM cl accepts only 0 and 1 for
++// _ReadStatusReg -- `mrs rN, apsr` and `mrs rN, spsr` -- and rejects any other
++// argument; the range error is tested in Sema/arm-windows-intrin-readstatusreg.c.
++// __prefetch is a plain pld. Before this both were undeclared on ARM.
++
++// intrin.h needs size_t, but -ffreestanding prevents us from getting it from
++// stddef.h.  Work around it with this typedef.
++typedef __SIZE_TYPE__ size_t;
++#include <intrin.h>
++
++int test_ReadStatusReg_apsr(void) { return _ReadStatusReg(0); }
++// CHECK-LABEL: @test_ReadStatusReg_apsr(
++// CHECK: call i32 @llvm.read_register.i32(metadata [[APSR:![0-9]+]])
++
++int test_ReadStatusReg_spsr(void) { return _ReadStatusReg(1); }
++// CHECK-LABEL: @test_ReadStatusReg_spsr(
++// CHECK: call i32 @llvm.read_register.i32(metadata [[SPSR:![0-9]+]])
++
++void test_prefetch(const void *p) { __prefetch(p); }
++// CHECK-LABEL: @test_prefetch(
++// CHECK: call void @llvm.prefetch.p0(ptr %{{.*}}, i32 0, i32 3, i32 1)
++
++// CHECK-DAG: [[APSR]] = !{!"apsr"}
++// CHECK-DAG: [[SPSR]] = !{!"spsr"}
+--- /dev/null
++++ b/clang/test/CodeGen/arm-windows-intrin0.c
+@@ -0,0 +1,26 @@
++// RUN: %clang_cc1 -ffreestanding -fms-extensions -fms-compatibility -fms-compatibility-version=19.00 \
++// RUN:         -triple thumbv7--windows -emit-llvm %s -o - \
++// RUN:         | FileCheck %s --implicit-check-not=@_Count
++
++// MSVC declares _CountLeadingZeros{,64} and _CountTrailingZeros{,64} in
++// intrin0.inl.h, which <intrin0.h> reaches; MSVC STL headers include only
++// <intrin0.h>. On 32-bit Arm, clang's <intrin0.h> must declare the same four,
++// or such a TU fails with "call to undeclared function".
++
++#include <intrin0.h>
++
++unsigned int test_clz(unsigned long x) { return _CountLeadingZeros(x); }
++// CHECK-LABEL: @test_clz(
++// CHECK: call i32 @llvm.ctlz.i32(
++
++unsigned int test_clz64(unsigned __int64 x) { return _CountLeadingZeros64(x); }
++// CHECK-LABEL: @test_clz64(
++// CHECK: call i64 @llvm.ctlz.i64(
++
++unsigned int test_ctz(unsigned long x) { return _CountTrailingZeros(x); }
++// CHECK-LABEL: @test_ctz(
++// CHECK: call i32 @llvm.cttz.i32(
++
++unsigned int test_ctz64(unsigned __int64 x) { return _CountTrailingZeros64(x); }
++// CHECK-LABEL: @test_ctz64(
++// CHECK: call i64 @llvm.cttz.i64(
+--- a/clang/test/CodeGen/ms-barriers-intrinsics.c
++++ b/clang/test/CodeGen/ms-barriers-intrinsics.c
+@@ -4,6 +4,9 @@
+ // RUN: %clang_cc1 -ffreestanding -fms-extensions -fms-compatibility -fms-compatibility-version=17.00 \
+ // RUN:         -triple x86_64--windows -emit-llvm %s -o - \
+ // RUN:         | FileCheck %s --check-prefix=CHECK --check-prefix=CHECK-X64
++// RUN: %clang_cc1 -ffreestanding -fms-extensions -fms-compatibility -fms-compatibility-version=17.00 \
++// RUN:         -triple thumbv7--windows -emit-llvm %s -o - \
++// RUN:         | FileCheck %s
+ 
+ // intrin.h needs size_t, but -ffreestanding prevents us from getting it from
+ // stddef.h.  Work around it with this typedef.
+@@ -12,19 +15,19 @@
+ #include <intrin.h>
+ 
+ void test_ReadWriteBarrier(void) { _ReadWriteBarrier(); }
+-// CHECK-LABEL: define dso_local void @test_ReadWriteBarrier
++// CHECK-LABEL: define dso_local {{.*}}void @test_ReadWriteBarrier
+ // CHECK:   fence syncscope("singlethread") seq_cst
+ // CHECK:   ret void
+ // CHECK: }
+ 
+ void test_ReadBarrier(void) { _ReadBarrier(); }
+-// CHECK-LABEL: define dso_local void @test_ReadBarrier
++// CHECK-LABEL: define dso_local {{.*}}void @test_ReadBarrier
+ // CHECK:   fence syncscope("singlethread") seq_cst
+ // CHECK:   ret void
+ // CHECK: }
+ 
+ void test_WriteBarrier(void) { _WriteBarrier(); }
+-// CHECK-LABEL: define dso_local void @test_WriteBarrier
++// CHECK-LABEL: define dso_local {{.*}}void @test_WriteBarrier
+ // CHECK:   fence syncscope("singlethread") seq_cst
+ // CHECK:   ret void
+ // CHECK: }
+--- a/clang/test/CodeGen/ms-setjmp.c
++++ b/clang/test/CodeGen/ms-setjmp.c
+@@ -1,9 +1,13 @@
+ // RUN: %clang_cc1 -fms-extensions -DDECLARE_SETJMP -triple i686-windows-msvc   -emit-llvm %s -o - | FileCheck --check-prefix=I386 %s
+ // RUN: %clang_cc1 -fms-extensions -DDECLARE_SETJMP -triple x86_64-windows-msvc -emit-llvm %s -o - | FileCheck --check-prefix=X64 %s
+ // RUN: %clang_cc1 -fms-extensions -DDECLARE_SETJMP -triple aarch64-windows-msvc -emit-llvm %s -o - | FileCheck --check-prefix=AARCH64 %s
++// RUN: %clang_cc1 -fms-extensions -DDECLARE_SETJMP -triple thumbv7-windows-msvc -emit-llvm %s -o - | FileCheck --check-prefix=ARM32 %s
++// RUN: %clang_cc1 -fms-extensions -DDECLARE_SETJMP -triple armv7-windows-msvc   -emit-llvm %s -o - | FileCheck --check-prefix=ARM32 %s
+ // RUN: %clang_cc1 -fms-extensions -triple i686-windows-msvc -Wno-implicit-function-declaration -emit-llvm %s -o - | FileCheck --check-prefix=I386 %s
+ // RUN: %clang_cc1 -fms-extensions -triple x86_64-windows-msvc -Wno-implicit-function-declaration -emit-llvm %s -o - | FileCheck --check-prefix=X64 %s
+ // RUN: %clang_cc1 -fms-extensions -triple aarch64-windows-msvc -Wno-implicit-function-declaration -emit-llvm %s -o - | FileCheck --check-prefix=AARCH64 %s
++// RUN: %clang_cc1 -fms-extensions -triple thumbv7-windows-msvc -Wno-implicit-function-declaration -emit-llvm %s -o - | FileCheck --check-prefix=ARM32 %s
++// RUN: %clang_cc1 -fms-extensions -triple armv7-windows-msvc -Wno-implicit-function-declaration -emit-llvm %s -o - | FileCheck --check-prefix=ARM32 %s
+ typedef char jmp_buf[1];
+ 
+ #ifdef DECLARE_SETJMP
+@@ -28,6 +32,11 @@
+   // AARCH64:       %[[addr:.*]] = call ptr @llvm.sponentry.p0()
+   // AARCH64:       %[[call:.*]] = call i32 @_setjmpex(ptr @jb, ptr %[[addr]])
+   // AARCH64-NEXT:  ret i32 %[[call]]
++
++  // ARM32-LABEL: define dso_local arm_aapcs_vfpcc i32 @test_setjmp
++  // ARM32:       %[[addr:.*]] = call ptr @llvm.sponentry.p0()
++  // ARM32:       %[[call:.*]] = call arm_aapcs_vfpcc i32 @_setjmp(ptr @jb, ptr %[[addr]])
++  // ARM32-NEXT:  ret i32 %[[call]]
+ }
+ 
+ int test_setjmpex(void) {
+@@ -41,4 +50,9 @@
+   // AARCH64:       %[[addr:.*]] = call ptr @llvm.sponentry.p0()
+   // AARCH64:       %[[call:.*]] = call i32 @_setjmpex(ptr @jb, ptr %[[addr]])
+   // AARCH64-NEXT:  ret i32 %[[call]]
++
++  // ARM32-LABEL: define dso_local arm_aapcs_vfpcc i32 @test_setjmpex
++  // ARM32:       %[[addr:.*]] = call ptr @llvm.sponentry.p0()
++  // ARM32:       %[[call:.*]] = call arm_aapcs_vfpcc i32 @_setjmpex(ptr @jb, ptr %[[addr]])
++  // ARM32-NEXT:  ret i32 %[[call]]
+ }
+--- /dev/null
++++ b/clang/test/CodeGenCXX/arm-windows-pcs.cpp
+@@ -0,0 +1,16 @@
++// RUN: %clang_cc1 -triple thumbv7-windows-msvc -fms-extensions -Werror -emit-llvm -o - %s | FileCheck %s
++
++// Skia's shape in C++: a stage function and a function-pointer type both
++// carrying pcs("aapcs-vfp"). On Windows ARM the attribute is the default
++// convention, so it must neither warn (-Werror here) nor reach the Microsoft
++// mangler as a convention it cannot mangle: both functions mangle exactly as
++// unattributed ones, with the __cdecl code A (after YA, and in P6A).
++
++#define ABI __attribute__((pcs("aapcs-vfp")))
++using StageFn = void ABI (*)(float *, float);
++static void ABI stage(float *p, float v) { *p = v; }
++StageFn get() { return stage; }
++void (*plain)(float *, float) = get();
++
++// CHECK-DAG: define dso_local arm_aapcs_vfpcc {{.*}}ptr @"?get@@YAP6AXPAMM@ZXZ"()
++// CHECK-DAG: define internal arm_aapcs_vfpcc void @"?stage@@YAXPAMM@Z"(
+--- /dev/null
++++ b/clang/test/Preprocessor/pragma_microsoft_arm.c
+@@ -0,0 +1,11 @@
++// RUN: %clang_cc1 -triple thumbv7-windows-msvc %s -fsyntax-only -verify -fms-extensions
++
++// The Microsoft compiler barriers are builtins on 32-bit Arm, as they are on
++// x86 and AArch64, so '#pragma intrinsic' must accept them without a
++// -Wignored-pragma-intrinsic warning.
++
++// expected-no-diagnostics
++
++#pragma intrinsic(_ReadBarrier)
++#pragma intrinsic(_ReadWriteBarrier)
++#pragma intrinsic(_WriteBarrier)
+--- /dev/null
++++ b/clang/test/Sema/arm-windows-intrin-readstatusreg.c
+@@ -0,0 +1,20 @@
++// RUN: %clang_cc1 -ffreestanding -fms-extensions -fms-compatibility -fms-compatibility-version=19.00 \
++// RUN:         -triple thumbv7--windows -fsyntax-only -verify %s
++
++// MSVC's ARM cl accepts only 0 (APSR) and 1 (SPSR) for _ReadStatusReg and
++// rejects everything else at compile time; so does clang.
++
++// intrin.h needs size_t, but -ffreestanding prevents us from getting it from
++// stddef.h.  Work around it with this typedef.
++typedef __SIZE_TYPE__ size_t;
++#include <intrin.h>
++
++int ok(void) { return _ReadStatusReg(0) + _ReadStatusReg(1); }
++
++int out_of_range(void) {
++  return _ReadStatusReg(2); // expected-error {{argument value 2 is outside the valid range [0, 1]}}
++}
++
++int not_constant(int r) {
++  return _ReadStatusReg(r); // expected-error {{argument to '_ReadStatusReg' must be a constant integer}}
++}
+--- /dev/null
++++ b/clang/test/Sema/arm-windows-pcs.c
+@@ -0,0 +1,20 @@
++// RUN: %clang_cc1 -triple thumbv7-windows -fsyntax-only -verify %s
++// RUN: %clang_cc1 -triple thumbv7-w64-windows-gnu -fsyntax-only -verify %s
++// RUN: %clang_cc1 -triple thumbv7-windows -emit-llvm -o - %s 2>&1 | FileCheck %s
++
++// Windows on ARM always uses AAPCS-VFP, so pcs("aapcs-vfp") names the default
++// convention: it is accepted silently and changes nothing (Skia's
++// SkRasterPipeline_opts.h applies it to every ARM32+NEON build).
++// pcs("aapcs") would be a real ABI change on this hard-float target and is
++// still diagnosed.
++
++float __attribute__((pcs("aapcs-vfp"))) with_pcs(float a, float b) { return a + b; }
++float without_pcs(float a, float b) { return a + b; }
++
++// The attributed function and a plain function have the same type.
++float (*fp)(float, float) = with_pcs;
++
++float __attribute__((pcs("aapcs"))) base_aapcs(float a, float b) { return a + b; } // expected-warning {{'pcs' calling convention is not supported for this target}}
++
++// CHECK: define dso_local arm_aapcs_vfpcc float @with_pcs(
++// CHECK: define dso_local arm_aapcs_vfpcc float @without_pcs(
+--- /dev/null
++++ b/clang/test/SemaCXX/attr-lifetime-capture-by-deprecated-default.cpp
+@@ -0,0 +1,24 @@
++// RUN: %clang_cc1 -std=c++20 -fsyntax-only -Werror -verify=default %s
++// RUN: %clang_cc1 -std=c++20 -fsyntax-only -Wdeprecated-attributes -verify=enabled %s
++
++// The parenthesised lifetime_capture_by(this|global|unknown) spellings are
++// deprecated, but the warning is off by default: code written for compilers
++// that only know those spellings -- abseil's ABSL_INTERNAL_ATTRIBUTE_CAPTURED_BY
++// is the case that matters -- builds cleanly under -Werror.
++// -Wdeprecated-attributes still reports every one.
++
++// default-no-diagnostics
++
++#define ABSL_INTERNAL_ATTRIBUTE_CAPTURED_BY(Owner) [[clang::lifetime_capture_by(Owner)]]
++
++struct SpinLock {
++  void set(const int &v ABSL_INTERNAL_ATTRIBUTE_CAPTURED_BY(this)); // enabled-warning {{'lifetime_capture_by(this)' is deprecated; use 'lifetime_capture_by_this' instead}}
++};
++
++void to_global(const int &v [[clang::lifetime_capture_by(global)]]); // enabled-warning {{'lifetime_capture_by(global)' is deprecated; use 'lifetime_capture_by_global' instead}}
++void to_unknown(const int &v [[clang::lifetime_capture_by(unknown)]]); // enabled-warning {{'lifetime_capture_by(unknown)' is deprecated; use 'lifetime_capture_by_unknown' instead}}
++
++// The new spellings are silent either way.
++struct Modern {
++  void set(const int &v [[clang::lifetime_capture_by_this]]);
++};
+--- a/clang/test/SemaCXX/attr-lifetime-capture-by.cpp
++++ b/clang/test/SemaCXX/attr-lifetime-capture-by.cpp
+@@ -1,4 +1,4 @@
+-// RUN: %clang_cc1 -std=c++23 -verify %s
++// RUN: %clang_cc1 -std=c++23 -verify -Wdeprecated-attributes %s
+ 
+ struct S {
+   const int *x;
+--- a/lld/COFF/Chunks.cpp
++++ b/lld/COFF/Chunks.cpp
+@@ -198,9 +198,11 @@
+ static void applyBranch20T(uint8_t *off, int32_t v) {
+   if (!isInt<21>(v))
+     error("relocation out of range");
++  // Encoding T3: imm32 = SignExtend(S:J2:J1:imm6:imm11:'0'), so J2 is offset
++  // bit 19 and J1 is bit 18 (unlike T4 below, where I1 is bit 23).
+   uint32_t s = v < 0 ? 1 : 0;
+-  uint32_t j1 = (v >> 19) & 1;
+-  uint32_t j2 = (v >> 18) & 1;
++  uint32_t j1 = (v >> 18) & 1;
++  uint32_t j2 = (v >> 19) & 1;
+   or16(off, (s << 10) | ((v >> 12) & 0x3f));
+   or16(off + 2, (j1 << 13) | (j2 << 11) | ((v >> 1) & 0x7ff));
+ }
+@@ -906,7 +908,14 @@
+   if (ctx.config.is64()) {
+     write64le(buf, sym->getRVA() + ctx.config.imageBase);
+   } else {
+-    write32le(buf, sym->getRVA() + ctx.config.imageBase);
++    uint32_t bit = 0;
++    // Pointer to thumb code must have the LSB set, so adjust it. Only code is
++    // adjusted: dllimport of a locally defined variable is valid, and the
++    // pointer to such a variable must stay unmodified.
++    if (ctx.config.machine == ARMNT && sym->getChunk() &&
++        (sym->getChunk()->getOutputCharacteristics() & IMAGE_SCN_MEM_EXECUTE))
++      bit = 1;
++    write32le(buf, (sym->getRVA() + ctx.config.imageBase) | bit);
+   }
+ }
+ 
+--- a/lld/COFF/Writer.cpp
++++ b/lld/COFF/Writer.cpp
+@@ -230,10 +230,20 @@
+                                       Defined *target, uint64_t p,
+                                       uint16_t type, int margin,
+                                       MachineTypes machine);
+-  bool createThunks(OutputSection *os, int margin);
+-  bool verifyRanges(const std::vector<Chunk *> chunks);
++  bool createThunks(OutputSection *os);
++  bool verifyRanges(const std::vector<Chunk *> chunks,
++                    SmallVectorImpl<uint16_t> &failedTypes, bool &failedOther);
++  int thunkMargin(uint16_t relType) const;
++  int maxThunkMargin() const;
++  int thunkMarginCap(uint16_t relType) const;
+   void createECCodeMap();
+   void finalizeAddresses();
++
++  // The margin for range extension thunks, per relocation type. A type's margin
++  // starts at defaultThunkMargin and only doubles, up to thunkMarginCap, when a
++  // relocation of that type fails verification (see finalizeAddresses).
++  DenseMap<uint16_t, int> thunkMargins;
++  int defaultThunkMargin = 1024 * 100;
+   void removeEmptySections();
+   void assignOutputSectionIndices();
+   void createSymbolAndStringTable();
+@@ -486,7 +496,44 @@
+ // After adding thunks, we verify that all relocations are in range (with
+ // no extra margin requirements). If this failed, we restart (throwing away
+ // the previously created thunks) and retry with a wider margin.
+-bool Writer::createThunks(OutputSection *os, int margin) {
++int Writer::thunkMargin(uint16_t relType) const {
++  auto it = thunkMargins.find(relType);
++  return it == thunkMargins.end() ? defaultThunkMargin : it->second;
++}
++
++int Writer::maxThunkMargin() const {
++  int m = defaultThunkMargin;
++  for (const auto &entry : thunkMargins)
++    m = std::max(m, entry.second);
++  return m;
++}
++
++// The widest margin worth using for a relocation type: from this margin on,
++// isInRange() is false for every relocation of the type, so each one already
++// gets its own thunk right after its source chunk and a wider margin changes
++// nothing. Other types (and the default margin) stop at the widest branch
++// range there is, ARM64's BRANCH26.
++int Writer::thunkMarginCap(uint16_t relType) const {
++  if (ctx.config.machine == ARMNT) {
++    switch (relType) {
++    case IMAGE_REL_ARM_BRANCH20T:
++      return 1 << 20;
++    case IMAGE_REL_ARM_BRANCH24T:
++    case IMAGE_REL_ARM_BLX23T:
++      return 1 << 24;
++    }
++  } else if (isAnyArm64(ctx.config.machine)) {
++    switch (relType) {
++    case IMAGE_REL_ARM64_BRANCH19:
++      return 1 << 20;
++    case IMAGE_REL_ARM64_BRANCH14:
++      return 1 << 15;
++    }
++  }
++  return 1 << 27;
++}
++
++bool Writer::createThunks(OutputSection *os) {
+   bool addressesChanged = false;
+   DenseMap<uint64_t, Defined *> lastThunks;
+   DenseMap<std::pair<ObjFile *, Defined *>, uint32_t> thunkSymtabIndices;
+@@ -530,6 +577,18 @@
+ 
+       uint64_t s = sym->getRVA();
+ 
++      // A target in the relocation's own section chunk needs no margin:
++      // thunks are only inserted between chunks, so this distance is final.
++      // Thunking such a branch would clobber the scratch register inside one
++      // routine (r12 on ARM, x16 on ARM64); MSVC's __rt_sdiv keeps state in r12
++      // across a local branch.
++      if (auto *dr = dyn_cast<DefinedRegular>(sym))
++        if (dr->getChunk() == sc &&
++            isInRange(rel.Type, s, sc->getRVA() + rel.VirtualAddress, 0,
++                      machine))
++          continue;
++
++      int margin = thunkMargin(rel.Type);
+       if (isInRange(rel.Type, s, p, margin, machine))
+         continue;
+ 
+@@ -632,12 +691,19 @@
+ }
+ 
+ // Verify that all relocations are in range, with no extra margin requirements.
+-bool Writer::verifyRanges(const std::vector<Chunk *> chunks) {
++// The type of every relocation found out of range is added to failedTypes; a
++// non-section chunk out of range sets failedOther.
++bool Writer::verifyRanges(const std::vector<Chunk *> chunks,
++                          SmallVectorImpl<uint16_t> &failedTypes,
++                          bool &failedOther) {
++  bool ok = true;
+   for (Chunk *c : chunks) {
+     SectionChunk *sc = dyn_cast<SectionChunk>(c);
+     if (!sc) {
+-      if (!cast<NonSectionChunk>(c)->verifyRanges())
+-        return false;
++      if (!cast<NonSectionChunk>(c)->verifyRanges()) {
++        ok = false;
++        failedOther = true;
++      }
+       continue;
+     }
+     MachineTypes machine = sc->getMachine();
+@@ -653,11 +719,14 @@
+       uint64_t p = sc->getRVA() + rel.VirtualAddress;
+       uint64_t s = sym->getRVA();
+ 
+-      if (!isInRange(rel.Type, s, p, 0, machine))
+-        return false;
++      if (!isInRange(rel.Type, s, p, 0, machine)) {
++        ok = false;
++        if (!llvm::is_contained(failedTypes, rel.Type))
++          failedTypes.push_back(rel.Type);
++      }
+     }
+   }
+-  return true;
++  return ok;
+ }
+ 
+ // Assign addresses and add thunks if necessary.
+@@ -673,7 +742,8 @@
+   }
+ 
+   int pass = 0;
+-  int margin = 1024 * 100;
++  thunkMargins.clear();
++  defaultThunkMargin = 1024 * 100;
+   while (true) {
+     llvm::TimeTraceScope timeScope2("Add thunks pass");
+ 
+@@ -681,34 +751,55 @@
+     // adding them turned out ok.
+     bool rangesOk = true;
+     size_t numChunks = 0;
++    SmallVector<uint16_t, 4> failedTypes;
++    bool failedOther = false;
+     {
+       llvm::TimeTraceScope timeScope3("Verify ranges");
+       for (OutputSection *sec : ctx.outputSections) {
+-        if (!verifyRanges(sec->chunks)) {
++        if (!verifyRanges(sec->chunks, failedTypes, failedOther))
+           rangesOk = false;
+-          break;
+-        }
+         numChunks += sec->chunks.size();
+       }
+     }
+     if (rangesOk) {
+       if (pass > 0)
+         Log(ctx) << "Added " << (numChunks - origNumChunks) << " thunks with "
+-                 << "margin " << margin << " in " << pass << " passes";
++                 << "margin " << maxThunkMargin() << " in " << pass
++                 << " passes";
+       return;
+     }
+ 
+-    if (pass >= 10)
+-      Fatal(ctx) << "adding thunks hasn't converged after " << pass
+-                 << " passes";
+-
+     if (pass > 0) {
+       // If the previous pass didn't work out, reset everything back to the
+-      // original conditions before retrying with a wider margin. This should
+-      // ideally never happen under real circumstances.
++      // original conditions before retrying with a wider margin for the
++      // relocation types that went out of range. This should ideally never
++      // happen under real circumstances.
+       for (OutputSection *sec : ctx.outputSections)
+         sec->chunks = sec->origChunks;
+-      margin *= 2;
++      // Margins grow per relocation type, possibly in different passes, and
++      // each stops at its cap. If no margin can grow, more passes cannot help:
++      // a capped type already sends every relocation through a thunk right
++      // after its source chunk. (A failing non-section chunk widens every
++      // margin, the default too, so it still gets more passes than the old
++      // fixed limit of 10.) The loop ends: every pass grows a margin, and
++      // margins never shrink and are bounded.
++      bool grew = false;
++      auto widen = [&](int margin, int cap) {
++        int wider = margin < cap ? std::min(margin * 2, cap) : margin;
++        grew |= wider != margin;
++        return wider;
++      };
++      if (failedOther) {
++        defaultThunkMargin = widen(defaultThunkMargin, 1 << 27);
++        for (auto &entry : thunkMargins)
++          entry.second = widen(entry.second, thunkMarginCap(entry.first));
++      } else {
++        for (uint16_t type : failedTypes)
++          thunkMargins[type] = widen(thunkMargin(type), thunkMarginCap(type));
++      }
++      if (!grew)
++        Fatal(ctx) << "adding thunks hasn't converged after " << pass
++                   << " passes";
+     }
+ 
+     // Try adding thunks everywhere where it is needed, with a margin
+@@ -717,7 +808,7 @@
+     {
+       llvm::TimeTraceScope timeScope3("Create thunks");
+       for (OutputSection *sec : ctx.outputSections)
+-        addressesChanged |= createThunks(sec, margin);
++        addressesChanged |= createThunks(sec);
+     }
+     // If the verification above thought we needed thunks, we should have
+     // added some.
+--- /dev/null
++++ b/lld/test/COFF/arm-thumb-branch20t-encoding.s
+@@ -0,0 +1,57 @@
++// REQUIRES: arm
++// RUN: llvm-mc -filetype=obj -triple=thumbv7-windows %s -o %t.obj
++// RUN: lld-link -entry:start -subsystem:console %t.obj -out:%t.exe
++// RUN: llvm-objdump --no-print-imm-hex -d %t.exe --start-address=0x401000 --stop-address=0x401010 | FileCheck %s
++// RUN: llvm-objdump --no-print-imm-hex -d %t.exe --start-address=0x4e2002 --stop-address=0x4e200a | FileCheck --check-prefix=BACK %s
++
++// IMAGE_REL_ARM_BRANCH20T is B<cond>.W (encoding T3), whose offset is
++// S:J2:J1:imm6:imm11:'0' -- J2 holds offset bit 19 and J1 bit 18. Four
++// conditional branches to targets 100, 300, 600 and 900 KB ahead cover every
++// pattern of those two bits; each must decode to its own target. With J1 and
++// J2 swapped, the 300 KB and 600 KB branches land 256 KB off. Backward branches
++// have their own patterns: about -300 KB has bit 19 set and bit 18 clear, about
++// -600 KB the reverse, so with J1 and J2 swapped both land 256 KB off too.
++
++// CHECK:      401000: {{.*}}bne.w 0x41a000
++// CHECK-NEXT: 401004: {{.*}}bne.w 0x44c000
++// CHECK-NEXT: 401008: {{.*}}bne.w 0x497000
++// CHECK-NEXT: 40100c: {{.*}}bne.w 0x4e2000
++
++// BACK:      4e2002: {{.*}}bne.w 0x497000
++// BACK-NEXT: 4e2006: {{.*}}bne.w 0x44c000
++
++    .syntax unified
++    .text
++    .def start; .scl 2; .type 32; .endef
++    .globl start
++start:
++    bne.w t100
++    bne.w t300
++    bne.w t600
++    bne.w t900
++    bx lr
++    .section .text$a,"xr"
++    .space 100*1024 - 18
++    .section .text$b,"xr"
++    .def t100; .scl 2; .type 32; .endef
++    .globl t100
++t100:
++    bx lr
++    .space 200*1024 - 2
++    .def t300; .scl 2; .type 32; .endef
++    .globl t300
++t300:
++    bx lr
++    .space 300*1024 - 2
++    .def t600; .scl 2; .type 32; .endef
++    .globl t600
++t600:
++    bx lr
++    .space 300*1024 - 2
++    .def t900; .scl 2; .type 32; .endef
++    .globl t900
++t900:
++    bx lr
++    bne.w t600
++    bne.w t300
++    bx lr
+--- /dev/null
++++ b/lld/test/COFF/arm-thumb-thunks-margin-per-type.s
+@@ -0,0 +1,62 @@
++// REQUIRES: arm
++// RUN: llvm-mc -filetype=obj -triple=thumbv7-windows %s -o %t.obj
++// RUN: lld-link -entry:main -subsystem:console %t.obj -out:%t.exe -verbose 2>&1 | FileCheck -check-prefix=VERBOSE %s
++// RUN: llvm-objdump --no-print-imm-hex -d %t.exe --start-address=0x401000 --stop-address=0x401008 | FileCheck --check-prefix=MAIN %s
++
++// The thunk margin grows per relocation type. The region after b24_target is
++// arm-thumb-thunks-multipass.s: its BRANCH20T relocations go out of range after
++// the first pass, so a second pass widens BRANCH20T's margin to 200 KB. That
++// must not widen the margin of other types. main's two b.w (BRANCH24T) reach
++// b24_target and func01 16 MB - 150 KB and 16 MB - 144 KB away: in range,
++// outside the 100 KB margin, inside a 200 KB one, and nothing is ever inserted
++// between them and their targets -- so both stay direct branches. Before, one
++// shared margin doubled for every type and both were thunked (30 thunks).
++
++// VERBOSE: Added 28 thunks with margin 204800 in 2 passes
++
++// MAIN: 401000: {{.*}}b.w 0x13db7fa <.text+0xfda7fa>
++// MAIN-NEXT: 401004: {{.*}}b.w 0x13dd000 <.text+0xfdc000>
++
++    .syntax unified
++    .globl main
++    .text
++    .def main; .scl 2; .type 32; .endef
++main:
++    b.w b24_target
++    b func01
++    bx lr
++    .section .text$0a, "xr"
++    .space 0x1000000 - 150*1024 - 16
++    .section .text$0b, "xr"
++    .def b24_target; .scl 2; .type 32; .endef
++    .globl b24_target
++b24_target:
++    bx lr
++
++.irp i, 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15, 16, 17, 18
++    .section .text$1\i\()a, "xr"
++    .balign 8192
++func\i:
++    bne far_func\i
++    bne func_within_margin\i
++    .space 8192 - 8 - 4
++
++    .section .text$1\i\()b, "xr"
++    .balign 8192
++align\i:
++    nop
++.endr
++
++    .section .text$999, "xr"
++tail:
++    .space 0x100000 - 100*1024 - 18*8192*2
++.irp i, 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15, 16, 17, 18
++func_within_margin\i:
++    nop
++.endr
++    .space 0x100000
++.irp i, 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15, 16, 17, 18
++far_func\i:
++    nop
++.endr
++    bx lr
+--- /dev/null
++++ b/lld/test/COFF/arm-thumb-thunks-no-converge.s
+@@ -0,0 +1,28 @@
++// REQUIRES: arm
++// RUN: llvm-mc -filetype=obj -triple=thumbv7-windows %s -o %t.obj
++// RUN: not lld-link -entry:main -subsystem:console %t.obj -out:%t.exe 2>&1 | FileCheck %s
++
++// A link that can never converge. main's bne.w (IMAGE_REL_ARM_BRANCH20T,
++// +-1 MB) is at the start of a 2 MB section chunk and its target is in another
++// chunk after it. The only place for a range extension thunk is right after
++// main's chunk, still out of range, so no margin can help. Each type's margin
++// stops at the width from which every relocation of the type is thunked anyway
++// (1 MB for BRANCH20T: four doublings from 100 KB), so lld gives up on the
++// fifth pass, when no margin is left to widen -- not after a fixed number of
++// passes spent doubling a margin that cannot help, and possibly overflowing it.
++
++// CHECK: adding thunks hasn't converged after 5 passes
++
++    .syntax unified
++    .globl main
++    .text
++    .def main; .scl 2; .type 32; .endef
++main:
++    bne.w far
++    bx lr
++    .space 0x200000
++    .section .text$b, "xr"
++    .def far; .scl 2; .type 32; .endef
++    .globl far
++far:
++    bx lr
+--- /dev/null
++++ b/lld/test/COFF/arm-thumb-thunks-same-chunk.s
+@@ -0,0 +1,39 @@
++// REQUIRES: arm
++// RUN: llvm-mc -filetype=obj -triple=thumbv7-windows %s -o %t.obj
++// RUN: lld-link -entry:main -subsystem:console %t.obj -out:%t.exe -verbose 2>&1 | FileCheck -check-prefix=VERBOSE %s
++// RUN: llvm-objdump --no-print-imm-hex -d %t.exe --start-address=0x401000 --stop-address=0x401008 | FileCheck --check-prefix=MAIN %s
++
++// A branch to a function in its own section chunk is not sent through a range
++// extension thunk while it is in range: thunks are only inserted between
++// chunks, so its distance can never change. A thunk would clobber r12, which
++// code such as MSVC's __rt_sdiv keeps live across a local conditional branch.
++// local_target is in range of the first bne.w (0xF0000 bytes ahead) but inside
++// the initial 100 KB margin of the end of BRANCH20T's range, so a margin-based
++// check alone would thunk it. far_target is genuinely out of range and still
++// gets the one thunk.
++// (local_target is declared as a function so that the assembler keeps the
++// relocation instead of resolving the branch itself.)
++
++// VERBOSE: Added 1 thunks with margin 102400 in 1 passes
++
++// MAIN: 401000: {{.*}}bne.w 0x4f1004 <.text+0xf0004>
++// MAIN-NEXT: 401004: {{.*}}bne.w 0x4f1006 <.text+0xf0006>
++
++    .syntax unified
++    .globl main
++    .text
++    .def main; .scl 2; .type 32; .endef
++main:
++    bne.w local_target
++    bne.w far_target
++    bx lr
++    .space 0xF0000 - 6
++    .def local_target; .scl 3; .type 32; .endef
++local_target:
++    bx lr
++    .section .text$z, "xr"
++    .space 0x100000
++    .def far_target; .scl 2; .type 32; .endef
++    .globl far_target
++far_target:
++    bx lr
+--- /dev/null
++++ b/lld/test/COFF/arm64-thunks-same-chunk.s
+@@ -0,0 +1,34 @@
++// REQUIRES: aarch64
++// RUN: llvm-mc -filetype=obj -triple=aarch64-windows %s -o %t.obj
++// RUN: lld-link -entry:main -subsystem:console %t.obj -out:%t.exe -verbose 2>&1 | FileCheck -check-prefix=VERBOSE %s
++// RUN: llvm-objdump --no-print-imm-hex -d %t.exe --start-address=0x140001000 --stop-address=0x140001008 | FileCheck %s
++
++// The same-chunk rule on ARM64. A TBZ (IMAGE_REL_ARM64_BRANCH14, +-32 KB) to a
++// function in its own section chunk is in range, but every BRANCH14 is out of
++// range under the initial 100 KB margin, so a margin-only check sends it
++// through an adrp/add/br thunk that clobbers x16. Thunks are only inserted
++// between chunks, so that distance is final: the branch must stay direct. The
++// TBZ to a function 32 KB away in another chunk still gets the one thunk.
++// (near is declared as a function so that the assembler keeps the relocation.)
++
++// VERBOSE: Added 1 thunks with margin 102400 in 1 passes
++
++// CHECK:      140001000: {{.*}}tbz w0, #0, 0x14000100c
++// CHECK-NEXT: 140001004: {{.*}}tbz w0, #0, 0x140001010
++
++    .globl main
++    .globl near
++    .text
++main:
++    tbz w0, #0, near
++    tbz w0, #0, far
++    ret
++    .def near; .scl 2; .type 32; .endef
++near:
++    ret
++    .section .text$a, "xr"
++    .space 0x8000
++    .section .text$b, "xr"
++    .globl far
++far:
++    ret
+--- /dev/null
++++ b/lld/test/COFF/locally-imported-armnt.test
+@@ -0,0 +1,95 @@
++## When a dllimport reference turns out to be locally defined, lld synthesises
++## the __imp_ pointer itself (LocalImportChunk). On ARMNT a pointer to thumb
++## code must have its low bit set, while a pointer to data must not be adjusted.
++## Check both cases.
++
++## A locally imported FUNCTION: the stored pointer must be odd.
++# RUN: yaml2obj --docnum=1 %s -o %t1.obj
++# RUN: lld-link /out:%t1.exe /entry:main /subsystem:console %t1.obj
++# RUN: llvm-objdump -s %t1.exe | FileCheck --check-prefix=CODE %s
++
++## main is at .text+0, so RVA 0x1000 and VA 0x401000. The slot at .text+4 gets
++## the RVA of the synthesised pointer, which is the first chunk of .rdata.
++# CODE:      Contents of section .text:
++# CODE-NEXT: 401000 704700bf 00200000
++# CODE:      Contents of section .rdata:
++# CODE-NEXT: 402000 01104000
++
++--- !COFF
++header:
++  Machine:         IMAGE_FILE_MACHINE_ARMNT
++  Characteristics: []
++sections:
++  - Name:            .text
++    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
++    Alignment:       4
++    SectionData:     704700BF00000000
++    Relocations:
++      - VirtualAddress:  4
++        SymbolName:      __imp_main
++        Type:            IMAGE_REL_ARM_ADDR32NB
++symbols:
++  - Name:            main
++    Value:           0
++    SectionNumber:   1
++    SimpleType:      IMAGE_SYM_TYPE_NULL
++    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
++    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
++  - Name:            __imp_main
++    Value:           0
++    SectionNumber:   0
++    SimpleType:      IMAGE_SYM_TYPE_NULL
++    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
++    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
++...
++
++## A locally imported VARIABLE: dllimport on a locally defined global is valid,
++## and consumers dereference the pointer, so it must stay even.
++# RUN: yaml2obj --docnum=2 %s -o %t2.obj
++# RUN: lld-link /out:%t2.exe /entry:main /subsystem:console %t2.obj
++# RUN: llvm-objdump -s %t2.exe | FileCheck --check-prefix=DATA %s
++
++## mydata is at .rdata+0, so RVA 0x2000 and VA 0x402000. The synthesised pointer
++## is appended to .rdata after the input chunk, landing at RVA 0x2004.
++# DATA:      Contents of section .text:
++# DATA-NEXT: 401000 704700bf 04200000
++# DATA:      Contents of section .rdata:
++# DATA-NEXT: 402000 2a000000 00204000
++
++--- !COFF
++header:
++  Machine:         IMAGE_FILE_MACHINE_ARMNT
++  Characteristics: []
++sections:
++  - Name:            .text
++    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
++    Alignment:       4
++    SectionData:     704700BF00000000
++    Relocations:
++      - VirtualAddress:  4
++        SymbolName:      __imp_mydata
++        Type:            IMAGE_REL_ARM_ADDR32NB
++  - Name:            .rdata
++    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ ]
++    Alignment:       4
++    SectionData:     2A000000
++symbols:
++  - Name:            main
++    Value:           0
++    SectionNumber:   1
++    SimpleType:      IMAGE_SYM_TYPE_NULL
++    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
++    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
++  - Name:            mydata
++    Value:           0
++    SectionNumber:   2
++    SimpleType:      IMAGE_SYM_TYPE_NULL
++    ComplexType:     IMAGE_SYM_DTYPE_NULL
++    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
++  - Name:            __imp_mydata
++    Value:           0
++    SectionNumber:   0
++    SimpleType:      IMAGE_SYM_TYPE_NULL
++    ComplexType:     IMAGE_SYM_DTYPE_NULL
++    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
++...
+--- a/llvm/include/llvm/MC/MCRegisterInfo.h
++++ b/llvm/include/llvm/MC/MCRegisterInfo.h
+@@ -25,6 +25,7 @@
+ #include <cassert>
+ #include <cstdint>
+ #include <iterator>
++#include <optional>
+ #include <utility>
+ 
+ namespace llvm {
+@@ -575,9 +576,24 @@
+   int getSEHRegNum(MCRegister Reg) const;
+ 
+   /// Map a target register to an equivalent CodeView register
+-  /// number.
++  /// number.  Reports a fatal error if the register has no CodeView
++  /// equivalent; use getCodeViewRegNumOrNone() if that is recoverable.
+   int getCodeViewRegNum(MCRegister Reg) const;
+ 
++  /// Map a target register to an equivalent CodeView register number, or
++  /// std::nullopt if this register has no CodeView equivalent.
++  ///
++  /// The mapping is not total: synthetic registers such as register tuples
++  /// (for example ARM's odd-even D-register pairs) have no encoding in the
++  /// CodeView format at all, so there is no number to return for them.
++  /// Callers that are able to omit whatever they were about to describe
++  /// should use this in preference to getCodeViewRegNum().
++  ///
++  /// A target that implements no CodeView mapping whatsoever remains a fatal
++  /// error, as that indicates CodeView was requested for a target which
++  /// cannot express it, rather than a gap in an existing mapping.
++  std::optional<int> getCodeViewRegNumOrNone(MCRegister Reg) const;
++
+   regclass_iterator regclass_begin() const { return Classes; }
+   regclass_iterator regclass_end() const { return Classes+NumClasses; }
+   iterator_range<regclass_iterator> regclasses() const {
+--- a/llvm/lib/CodeGen/AsmPrinter/CodeViewDebug.cpp
++++ b/llvm/lib/CodeGen/AsmPrinter/CodeViewDebug.cpp
+@@ -1404,8 +1404,18 @@
+       continue;
+     }
+ 
++    // Not every register can be named in CodeView.  Synthetic registers such
++    // as register tuples have no encoding in the format at all, so there is no
++    // number we could emit for them; drop this range rather than aborting.  The
++    // variable is still emitted, and reports as optimized out wherever it has
++    // no describable location.
++    std::optional<int> CVRegister =
++        TRI->getCodeViewRegNumOrNone(Location->Register);
++    if (!CVRegister)
++      continue;
++
+     LocalVarDef DR;
+-    DR.CVRegister = TRI->getCodeViewRegNum(Location->Register);
++    DR.CVRegister = *CVRegister;
+     DR.InMemory = !Location->LoadChain.empty();
+     DR.DataOffset = 0;
+     DR.DerefOffset = LocalVarDef::NoDeref;
+--- a/llvm/lib/MC/MCRegisterInfo.cpp
++++ b/llvm/lib/MC/MCRegisterInfo.cpp
+@@ -198,17 +198,28 @@
+   return I->second;
+ }
+ 
+-int MCRegisterInfo::getCodeViewRegNum(MCRegister Reg) const {
++std::optional<int>
++MCRegisterInfo::getCodeViewRegNumOrNone(MCRegister Reg) const {
++  // A target with no mapping at all has not implemented CodeView support; that
++  // is a target configuration error rather than a gap in a mapping, so it stays
++  // fatal here as well.  Downgrading it would silently strip the locations of
++  // every variable in the module.
+   if (L2CVRegs.empty())
+     report_fatal_error("target does not implement codeview register mapping");
+   const auto I = L2CVRegs.find(Reg);
+   if (I == L2CVRegs.end())
+-    report_fatal_error("unknown codeview register " + (Reg.id() < getNumRegs()
+-                                                           ? getName(Reg)
+-                                                           : Twine(Reg.id())));
++    return std::nullopt;
+   return I->second;
+ }
+ 
++int MCRegisterInfo::getCodeViewRegNum(MCRegister Reg) const {
++  if (std::optional<int> CVRegNum = getCodeViewRegNumOrNone(Reg))
++    return *CVRegNum;
++  report_fatal_error("unknown codeview register " + (Reg.id() < getNumRegs()
++                                                         ? getName(Reg)
++                                                         : Twine(Reg.id())));
++}
++
+ bool MCRegisterInfo::regsOverlap(MCRegister RegA, MCRegister RegB) const {
+   // Regunits are numerically ordered. Find a common unit.
+   auto RangeA = regunits(RegA);
+--- a/llvm/lib/Target/ARM/ARM.h
++++ b/llvm/lib/Target/ARM/ARM.h
+@@ -36,6 +36,7 @@
+ FunctionPass *createARMLowOverheadLoopsPass();
+ FunctionPass *createARMBlockPlacementPass();
+ Pass *createARMParallelDSPPass();
++FunctionPass *createARMWinEHFramePass();
+ FunctionPass *createARMISelDag(ARMBaseTargetMachine &TM,
+                                CodeGenOptLevel OptLevel);
+ FunctionPass *createA15SDOptimizerPass();
+@@ -72,6 +73,7 @@
+ void initializeARMLoadStoreOptLegacyPass(PassRegistry &);
+ void initializeARMLowOverheadLoopsPass(PassRegistry &);
+ void initializeARMParallelDSPPass(PassRegistry &);
++void initializeARMWinEHFramePass(PassRegistry &);
+ void initializeARMPreAllocLoadStoreOptLegacyPass(PassRegistry &);
+ void initializeARMSLSHardeningPass(PassRegistry &);
+ void initializeMVEGatherScatterLoweringPass(PassRegistry &);
+--- a/llvm/lib/Target/ARM/ARMAsmPrinter.cpp
++++ b/llvm/lib/Target/ARM/ARMAsmPrinter.cpp
+@@ -545,6 +545,12 @@
+   if (TT.isOSBinFormatELF())
+     emitAttributes();
+ 
++  // Emit @feat.00, as x86 and AArch64 do. Without its /guard:cf bit the
++  // linker treats the object as not CFG-instrumented and ignores its
++  // .gfids/.giats tables.
++  if (TT.isOSBinFormatCOFF())
++    emitCOFFFeatureSymbol(M);
++
+   // Use the triple's architecture and subarchitecture to determine
+   // if we're thumb for the purposes of the top level code16 state.
+   if (!M.getModuleInlineAsm().empty() && TT.isThumb())
+--- a/llvm/lib/Target/ARM/ARMExpandPseudoInsts.cpp
++++ b/llvm/lib/Target/ARM/ARMExpandPseudoInsts.cpp
+@@ -2258,6 +2258,39 @@
+     case ARM::CLEANUPRET:
+     case ARM::CATCHRET: {
+       unsigned RetOpcode = STI->isThumb() ? ARM::tBX_RET : ARM::BX_RET;
++      if (Opcode == ARM::CATCHRET) {
++        // The runtime resumes the parent at the address a catch funclet
++        // returns in r0: the catchret target. Load it before the epilogue, as
++        // MSVC does (movw/movt, one MOV32T relocation; the linker sets the
++        // Thumb bit).
++        MachineBasicBlock *TargetMBB = MI.getOperand(0).getMBB();
++        MachineBasicBlock::iterator InsertPt = MBBI;
++        while (InsertPt != MBB.begin() &&
++               std::prev(InsertPt)->getFlag(MachineInstr::FrameDestroy))
++          --InsertPt;
++        MCSymbol *Sym = TargetMBB->getSymbol();
++        bool IsThumb = STI->isThumb();
++        MachineInstrBuilder Lo =
++            BuildMI(MBB, InsertPt, MI.getDebugLoc(),
++                    TII->get(IsThumb ? ARM::t2MOVi16 : ARM::MOVi16), ARM::R0)
++                .addSym(Sym, ARMII::MO_LO16)
++                .add(predOps(ARMCC::AL));
++        MachineInstrBuilder Hi =
++            BuildMI(MBB, InsertPt, MI.getDebugLoc(),
++                    TII->get(IsThumb ? ARM::t2MOVTi16 : ARM::MOVTi16), ARM::R0)
++                .addReg(ARM::R0)
++                .addSym(Sym, ARMII::MO_HI16)
++                .add(predOps(ARMCC::AL));
++        // One MOV32T relocation covers both halves, so they must stay
++        // adjacent: bundle them, as the MOV32 expansion does on Windows.
++        finalizeBundle(MBB, Lo->getIterator(), std::next(Hi->getIterator()));
++        TargetMBB->setMachineBlockAddressTaken();
++        BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(RetOpcode))
++            .add(predOps(ARMCC::AL))
++            .addReg(ARM::R0, RegState::Implicit);
++        MI.eraseFromParent();
++        return true;
++      }
+       BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(RetOpcode))
+           .add(predOps(ARMCC::AL));
+       MI.eraseFromParent();
+--- a/llvm/lib/Target/ARM/ARMFrameLowering.cpp
++++ b/llvm/lib/Target/ARM/ARMFrameLowering.cpp
+@@ -121,6 +121,7 @@
+ #include "llvm/ADT/SmallPtrSet.h"
+ #include "llvm/ADT/SmallVector.h"
+ #include "llvm/CodeGen/CFIInstBuilder.h"
++#include "llvm/CodeGen/LivePhysRegs.h"
+ #include "llvm/CodeGen/MachineBasicBlock.h"
+ #include "llvm/CodeGen/MachineConstantPool.h"
+ #include "llvm/CodeGen/MachineFrameInfo.h"
+@@ -135,9 +136,12 @@
+ #include "llvm/CodeGen/TargetInstrInfo.h"
+ #include "llvm/CodeGen/TargetRegisterInfo.h"
+ #include "llvm/CodeGen/TargetSubtargetInfo.h"
++#include "llvm/CodeGen/WinEHFuncInfo.h"
+ #include "llvm/IR/Attributes.h"
+ #include "llvm/IR/CallingConv.h"
+ #include "llvm/IR/DebugLoc.h"
++#include "llvm/IR/DiagnosticInfo.h"
++#include "llvm/IR/EHPersonalities.h"
+ #include "llvm/IR/Function.h"
+ #include "llvm/IR/Module.h"
+ #include "llvm/MC/MCAsmInfo.h"
+@@ -1586,6 +1590,27 @@
+   return StackOffset::getFixed(ResolveFrameIndexReference(MF, FI, FrameReg, 0));
+ }
+ 
++/// With IgnoreSPUpdates the Windows EH tables ask where a slot is relative to
++/// their establisher frame, which on ARM is SP at function entry -- the frame
++/// object offsets themselves (as on AArch64).
++StackOffset ARMFrameLowering::getFrameIndexReferencePreferSP(
++    const MachineFunction &MF, int FI, Register &FrameReg,
++    bool IgnoreSPUpdates) const {
++  if (IgnoreSPUpdates) {
++    FrameReg = ARM::SP;
++    return StackOffset::getFixed(MF.getFrameInfo().getObjectOffset(FI));
++  }
++  return TargetFrameLowering::getFrameIndexReferencePreferSP(MF, FI, FrameReg,
++                                                             IgnoreSPUpdates);
++}
++
++/// Catch handlers' frame displacement (HandlerType::dispFrame): MSVC emits 0
++/// and the ARM runtime does not read it.
++unsigned
++ARMFrameLowering::getWinEHParentFrameOffset(const MachineFunction &MF) const {
++  return 0;
++}
++
+ StackOffset
+ ARMFrameLowering::getNonLocalFrameIndexReference(const MachineFunction &MF,
+                                                  int FI) const {
+@@ -1628,6 +1653,19 @@
+     return Offset;
+   }
+ 
++  // In a function with EH funclets, reach the frame only through the base
++  // pointer: inside a funclet SP and the frame pointer are the funclet's own,
++  // while the runtime restores the parent's r4-r11 -- and with them the base
++  // pointer, set to SP after the parent's prologue -- before calling it.
++  // (For cleanups the CRT's _CallSettingFrame does so from the dispatcher
++  // context; for catch funclets the context comes from the OS's exception
++  // record -- inferred, as MSVC's own catch funclets rely on it through r7.)
++  if (MF.hasEHFunclets()) {
++    assert(RegInfo->hasBasePointer(MF) && "funclets without a base pointer");
++    FrameReg = RegInfo->getBaseRegister();
++    return Offset - SPAdj;
++  }
++
+   // If there is a frame pointer, use it when we can.
+   if (hasFP(MF) && AFI->hasStackFrame()) {
+     // Use frame pointer to reference fixed objects. Use it for locals if
+@@ -2751,6 +2789,19 @@
+                                             BitVector &SavedRegs,
+                                             RegScavenger *RS) const {
+   TargetFrameLowering::determineCalleeSaves(MF, SavedRegs, RS);
++
++  // Windows C++ EH: the FuncInfo table needs an 8-byte UnwindHelp slot. Create
++  // it here, before the frame size is estimated below, so that the estimate
++  // includes it. The -2 stores are added in processFunctionBeforeFrameFinalized.
++  if (MF.hasEHFunclets() &&
++      classifyEHPersonality(MF.getFunction().getPersonalityFn()) ==
++          EHPersonality::MSVC_CXX) {
++    WinEHFuncInfo &EHInfo = *MF.getWinEHFuncInfo();
++    if (EHInfo.UnwindHelpFrameIdx == std::numeric_limits<int>::max())
++      EHInfo.UnwindHelpFrameIdx = MF.getFrameInfo().CreateStackObject(
++          8, Align(8), /*isSpillSlot=*/false);
++  }
++
+   // This tells PEI to spill the FP as if it is any other callee-save register
+   // to take advantage the eliminateFrameIndex machinery. This also ensures it
+   // is spilled in the order specified by getCalleeSavedRegs() to make it easier
+@@ -3031,9 +3082,11 @@
+     if (HasFP || (isFPReserved(MF) && AFI->getNumAlignedDPRCS2Regs() > 0)) {
+       SavedRegs.set(FramePtr);
+       // If the frame pointer is required by the ABI, also spill LR so that we
+-      // emit a complete frame record.
++      // emit a complete frame record. The same when the function takes the
++      // address of its return address: that is the LR slot of the record.
+       if ((requiresAAPCSFrameRecord(MF) ||
+-           MF.getTarget().Options.DisableFramePointerElim(MF)) &&
++           MF.getTarget().Options.DisableFramePointerElim(MF) ||
++           AFI->isAddressOfReturnAddressTaken()) &&
+           !LRSpilled) {
+         SavedRegs.set(ARM::LR);
+         LRSpilled = true;
+@@ -3324,6 +3377,65 @@
+     MachineFunction &MF, RegScavenger *RS) const {
+   TargetFrameLowering::processFunctionBeforeFrameFinalized(MF, RS);
+   updateLRRestored(MF);
++
++  if (!MF.hasEHFunclets() ||
++      classifyEHPersonality(MF.getFunction().getPersonalityFn()) !=
++          EHPersonality::MSVC_CXX)
++    return;
++
++  // The EH tables give each slot as a constant offset from SP at function
++  // entry, which a dynamically realigned frame does not have. ARMWinEHFrame
++  // makes such frames never need realignment, as MSVC does; this only
++  // catches input that bypassed it (e.g. MIR), and refuses rather than emit
++  // tables the runtime would misread.
++  const ARMBaseRegisterInfo *RegInfo = static_cast<const ARMBaseRegisterInfo *>(
++      MF.getSubtarget().getRegisterInfo());
++  if (RegInfo->hasStackRealignment(MF)) {
++    MF.getFunction().getContext().diagnose(DiagnosticInfoUnsupported(
++        MF.getFunction(), "Windows C++ exception handling on ARM needs a "
++                          "frame that is not dynamically realigned"));
++    return;
++  }
++
++  int UnwindHelpFI = MF.getWinEHFuncInfo()->UnwindHelpFrameIdx;
++  assert(UnwindHelpFI != std::numeric_limits<int>::max() &&
++         "UnwindHelp is created in determineCalleeSaves");
++
++  // Store -2 into both words of UnwindHelp right after the prologue, before
++  // any call that can unwind through this frame (MSVC does the same with an
++  // strd). Use a caller-saved register that is free there.
++  MachineBasicBlock &MBB = MF.front();
++  MachineBasicBlock::iterator MBBI = MBB.begin();
++  while (MBBI != MBB.end() && MBBI->getFlag(MachineInstr::FrameSetup))
++    ++MBBI;
++  LivePhysRegs LiveRegs(*RegInfo);
++  LiveRegs.addLiveOuts(MBB);
++  for (MachineInstr &MI : llvm::reverse(make_range(MBBI, MBB.end())))
++    LiveRegs.stepBackward(MI);
++  Register Tmp;
++  for (Register R : {ARM::R12, ARM::R3, ARM::R2, ARM::R1, ARM::R0})
++    if (LiveRegs.available(MF.getRegInfo(), R)) {
++      Tmp = R;
++      break;
++    }
++  if (!Tmp)
++    report_fatal_error("no free register to initialise UnwindHelp in '" +
++                       MF.getName() + "'");
++
++  const ARMBaseInstrInfo &TII =
++      *static_cast<const ARMBaseInstrInfo *>(MF.getSubtarget().getInstrInfo());
++  bool IsThumb2 = MF.getInfo<ARMFunctionInfo>()->isThumb2Function();
++  DebugLoc DL;
++  BuildMI(MBB, MBBI, DL, TII.get(IsThumb2 ? ARM::t2MVNi : ARM::MVNi), Tmp)
++      .addImm(1)
++      .add(predOps(ARMCC::AL))
++      .add(condCodeOp());
++  for (int Off : {0, 4})
++    BuildMI(MBB, MBBI, DL, TII.get(IsThumb2 ? ARM::t2STRi12 : ARM::STRi12))
++        .addReg(Tmp, getKillRegState(Off == 4))
++        .addFrameIndex(UnwindHelpFI)
++        .addImm(Off)
++        .add(predOps(ARMCC::AL));
+ }
+ 
+ void ARMFrameLowering::getCalleeSaves(const MachineFunction &MF,
+--- a/llvm/lib/Target/ARM/ARMFrameLowering.h
++++ b/llvm/lib/Target/ARM/ARMFrameLowering.h
+@@ -55,6 +55,10 @@
+                                              int FI) const override;
+   int ResolveFrameIndexReference(const MachineFunction &MF, int FI,
+                                  Register &FrameReg, int SPAdj) const;
++  StackOffset getFrameIndexReferencePreferSP(const MachineFunction &MF, int FI,
++                                             Register &FrameReg,
++                                             bool IgnoreSPUpdates) const override;
++  unsigned getWinEHParentFrameOffset(const MachineFunction &MF) const override;
+ 
+   void getCalleeSaves(const MachineFunction &MF,
+                       BitVector &SavedRegs) const override;
+--- a/llvm/lib/Target/ARM/ARMISelLowering.cpp
++++ b/llvm/lib/Target/ARM/ARMISelLowering.cpp
+@@ -2199,6 +2199,20 @@
+           DAG.getNode(ISD::TokenFactor, dl, MVT::Other, ByValCopyChains);
+   }
+ 
++  // A musttail call in a variadic function has to receive the caller's unnamed
++  // register arguments unchanged, so pass on the registers that
++  // LowerFormalArguments recorded as forwarded.  They are disjoint from the
++  // named arguments handled below: musttail requires the callee's prototype to
++  // match the caller's, and the forwarded set was computed from the registers
++  // those named arguments had already consumed.
++  if (isVarArg && CLI.CB && CLI.CB->isMustTailCall()) {
++    const auto &Forwards = AFI->getForwardedMustTailRegParms();
++    for (const ForwardedRegister &F : Forwards) {
++      SDValue Val = DAG.getCopyFromReg(Chain, dl, F.VReg, F.VT);
++      RegsToPass.push_back(std::make_pair(F.PReg, Val));
++    }
++  }
++
+   // During a tail call, stores to the argument area must happen after all of
+   // the function's incoming arguments have been loaded because they may alias.
+   // This is done by folding in a TokenFactor from LowerFormalArguments, but
+@@ -2831,11 +2845,34 @@
+     }
+   }
+ 
+-  // If Caller's vararg argument has been split between registers and stack, do
+-  // not perform tail call, since part of the argument is in caller's local
+-  // frame.
++  // The caller's argument-register save area has two independent producers and
++  // LowerFormalArguments collapses both into ArgRegsSaveSize, but only one of
++  // them makes a tail call unsafe:
++  //
++  //  * BYVAL.  A byval argument split between registers and the stack has its
++  //    register half written by StoreByValRegs into a fixed object below the
++  //    CFA, and it is the *address* of that object that is handed to the
++  //    callee.  A tail call releases the object before the callee reads it, so
++  //    this producer still vetoes.
++  //
++  //  * VA_START.  A variadic function's unnamed argument window is spilled to
++  //    the same area, but nothing that outlives this frame points into it.  The
++  //    va_list dies with the caller (a musttail call must be followed by a
++  //    return), emitEpilogue already releases the area ahead of a TCRETURN
++  //    through ReservedArgStack, and the callee of a musttail call is handed
++  //    the same unnamed registers again through ForwardedMustTailRegParms.
++  //    Vetoing this costs an ordinary call nothing -- it silently becomes a
++  //    non-tail call -- but LowerCall turns the veto into report_fatal_error
++  //    for a musttail call, so this producer stands down for musttail only.
++  //
++  // Thumb1 is excluded from the exemption: there the save area is released by
++  // Thumb1FrameLowering::emitPopSpecialFixUp, written around a tBX_RET/tPOP_RET
++  // terminator rather than a TCRETURN, so it keeps its current behaviour.
+   const ARMFunctionInfo *AFI_Caller = MF.getInfo<ARMFunctionInfo>();
+-  if (CLI.IsVarArg && AFI_Caller->getArgRegsSaveSize()) {
++  const bool isMustTail = CLI.CB && CLI.CB->isMustTailCall();
++  const bool onlyVarArgSaveArea = AFI_Caller->getByValArgRegsSaveSize() == 0;
++  if (CLI.IsVarArg && AFI_Caller->getArgRegsSaveSize() &&
++      !(isMustTail && onlyVarArgSaveArea && !Subtarget->isThumb1Only())) {
+     LLVM_DEBUG(dbgs() << "false (arg reg save area)\n");
+     return false;
+   }
+@@ -4254,6 +4291,13 @@
+   }
+   CCInfo.rewindByValRegsInfo();
+ 
++  // Record what the byval parameters alone contribute, before the variadic
++  // window below widens ArgRegBegin.  Once the two are added together in
++  // TotalArgRegsSaveSize they cannot be told apart again, and only the byval
++  // part is pointed into by the callee, so only that part has to veto a tail
++  // call.  See IsEligibleForTailCallOptimization.
++  AFI->setByValArgRegsSaveSize(4 * (ARM::R4 - ArgRegBegin));
++
+   int lastInsIndex = -1;
+   if (isVarArg && MFI.hasVAStart()) {
+     unsigned RegIdx = CCInfo.getFirstUnallocated(GPRArgRegs);
+@@ -4431,6 +4475,37 @@
+     }
+   }
+ 
++  // If this variadic function forwards its arguments with a musttail call, the
++  // unnamed arguments that arrived in registers have to be modelled as live so
++  // that the register allocator does not use one of them as scratch and so that
++  // they are still intact at the tail call.  This must run after the va_list
++  // save area above, which consumes the same registers, but unlike that area it
++  // needs no stack object of its own -- so it is deliberately *not* predicated
++  // on hasVAStart(): a forwarding thunk never calls va_start.
++  if (isVarArg && MFI.hasMustTailInVarArgFunc()) {
++    // getRemainingRegParmsForType() walks the assign function until an argument
++    // lands in memory, so the convention must have a stack fallback.  GHC and
++    // the Windows CFGuard check stub assign to registers only and would run off
++    // the end of their tables; getEffectiveCallingConv() passes both through
++    // unchanged.  Neither supports variadic arguments, so there is nothing to
++    // forward for them, and skipping keeps a shape that compiles today from
++    // becoming a backend abort.
++    CallingConv::ID EffCC = getEffectiveCallingConv(CallConv, isVarArg);
++    if (EffCC != CallingConv::GHC && EffCC != CallingConv::CFGuard_Check) {
++      // For the conventions that remain, only the core registers can hold an
++      // unnamed argument: getEffectiveCallingConv() degrades every VFP
++      // convention to CallingConv::ARM_AAPCS when isVarArg is set, so no
++      // floating-point register is part of the variadic argument window.
++      SmallVector<MVT, 1> RegParmTypes;
++      RegParmTypes.push_back(MVT::i32);
++      // Compute the set of forwarded registers. The rest are scratch.
++      SmallVectorImpl<ForwardedRegister> &Forwards =
++          AFI->getForwardedMustTailRegParms();
++      CCInfo.analyzeMustTailForwardedRegisters(
++          Forwards, RegParmTypes, CCAssignFnForCall(CallConv, isVarArg));
++    }
++  }
++
+   unsigned StackArgSize = CCInfo.getStackSize();
+   bool TailCallOpt = MF.getTarget().Options.GuaranteedTailCallOpt;
+   if (canGuaranteeTCO(CallConv, TailCallOpt)) {
+@@ -5954,6 +6029,26 @@
+   return DAG.getCopyFromReg(DAG.getEntryNode(), dl, Reg, VT);
+ }
+ 
++SDValue ARMTargetLowering::LowerADDROFRETURNADDR(SDValue Op,
++                                                 SelectionDAG &DAG) const {
++  // The return address is spilled in the {FP, LR} frame record, at FP + 4 --
++  // the same slot LowerRETURNADDR reads for Depth > 0. Taking the frame
++  // address forces the frame pointer; the flag below makes determineCalleeSaves
++  // spill LR next to it, even in a leaf that would not otherwise save LR.
++  const ARMBaseRegisterInfo &ARI =
++      *static_cast<const ARMBaseRegisterInfo *>(RegInfo);
++  MachineFunction &MF = DAG.getMachineFunction();
++  MF.getFrameInfo().setFrameAddressIsTaken(true);
++  MF.getInfo<ARMFunctionInfo>()->setAddressOfReturnAddressTaken(true);
++
++  EVT VT = Op.getValueType();
++  SDLoc dl(Op);
++  Register FrameReg = ARI.getFrameRegister(MF);
++  SDValue FrameAddr = DAG.getCopyFromReg(DAG.getEntryNode(), dl, FrameReg, VT);
++  return DAG.getNode(ISD::ADD, dl, VT, FrameAddr,
++                     DAG.getConstant(4, dl, MVT::i32));
++}
++
+ SDValue ARMTargetLowering::LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const {
+   const ARMBaseRegisterInfo &ARI =
+     *static_cast<const ARMBaseRegisterInfo*>(RegInfo);
+@@ -10522,6 +10617,7 @@
+   case ISD::FCOPYSIGN:     return LowerFCOPYSIGN(Op, DAG);
+   case ISD::RETURNADDR:    return LowerRETURNADDR(Op, DAG);
+   case ISD::FRAMEADDR:     return LowerFRAMEADDR(Op, DAG);
++  case ISD::ADDROFRETURNADDR: return LowerADDROFRETURNADDR(Op, DAG);
+   case ISD::EH_SJLJ_SETJMP: return LowerEH_SJLJ_SETJMP(Op, DAG);
+   case ISD::EH_SJLJ_LONGJMP: return LowerEH_SJLJ_LONGJMP(Op, DAG);
+   case ISD::EH_SJLJ_SETUP_DISPATCH: return LowerEH_SJLJ_SETUP_DISPATCH(Op, DAG);
+@@ -22269,6 +22365,12 @@
+   return EM == ExceptionHandling::SjLj ? Register() : ARM::R1;
+ }
+ 
++// Windows ARM C++ EH: catch objects are ordinary stack objects. Their offsets
++// from SP at entry -- what the EH tables record -- are constant whenever the
++// frame is not dynamically realigned, which ARMWinEHFrame ensures (as MSVC
++// does, such a frame is never realigned).
++bool ARMTargetLowering::needsFixedCatchObjects() const { return false; }
++
+ void ARMTargetLowering::initializeSplitCSR(MachineBasicBlock *Entry) const {
+   // Update IsSplitCSR in ARMFunctionInfo.
+   ARMFunctionInfo *AFI = Entry->getParent()->getInfo<ARMFunctionInfo>();
+--- a/llvm/lib/Target/ARM/ARMISelLowering.h
++++ b/llvm/lib/Target/ARM/ARMISelLowering.h
+@@ -359,6 +359,8 @@
+     Register
+     getExceptionSelectorRegister(const Constant *PersonalityFn) const override;
+ 
++    bool needsFixedCatchObjects() const override;
++
+     Instruction *makeDMB(IRBuilderBase &Builder, ARM_MB::MemBOpt Domain) const;
+     Value *emitLoadLinked(IRBuilderBase &Builder, Type *ValueTy, Value *Addr,
+                           AtomicOrdering Ord) const override;
+@@ -579,6 +581,7 @@
+     SDValue LowerBR_CC(SDValue Op, SelectionDAG &DAG) const;
+     SDValue LowerFCOPYSIGN(SDValue Op, SelectionDAG &DAG) const;
+     SDValue LowerRETURNADDR(SDValue Op, SelectionDAG &DAG) const;
++    SDValue LowerADDROFRETURNADDR(SDValue Op, SelectionDAG &DAG) const;
+     SDValue LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const;
+     SDValue LowerShiftRightParts(SDValue Op, SelectionDAG &DAG) const;
+     SDValue LowerShiftLeftParts(SDValue Op, SelectionDAG &DAG) const;
+--- a/llvm/lib/Target/ARM/ARMMachineFunctionInfo.h
++++ b/llvm/lib/Target/ARM/ARMMachineFunctionInfo.h
+@@ -15,6 +15,8 @@
+ 
+ #include "llvm/ADT/DenseMap.h"
+ #include "llvm/ADT/SmallPtrSet.h"
++#include "llvm/ADT/SmallVector.h"
++#include "llvm/CodeGen/CallingConvLower.h"
+ #include "llvm/CodeGen/MIRYamlMapping.h"
+ #include "llvm/CodeGen/MachineFunction.h"
+ #include "llvm/IR/GlobalVariable.h"
+@@ -48,6 +50,14 @@
+   ///
+   unsigned ArgRegsSaveSize = 0;
+ 
++  /// ByValArgRegsSaveSize - The part of ArgRegsSaveSize that byval parameters
++  /// alone account for, recorded by LowerFormalArguments before the variadic
++  /// window and the guaranteed-tail-call reservation are folded in.  The two
++  /// contributions are indistinguishable once collapsed, and they are not
++  /// equally dangerous: the byval half is pointed into by the callee, the
++  /// variadic half is not.  See IsEligibleForTailCallOptimization.
++  unsigned ByValArgRegsSaveSize = 0;
++
+   /// ReturnRegsCount - Number of registers used up in the return.
+   unsigned ReturnRegsCount = 0;
+ 
+@@ -63,6 +73,11 @@
+   /// any reason, so it's legal to emit an ARM::tBfar (i.e. "bl").
+   bool LRSpilled = false;
+ 
++  /// True if the function takes the address of its own return address
++  /// (llvm.addressofreturnaddress): LR must then be spilled into the frame
++  /// record, next to the frame pointer.
++  bool AddressOfReturnAddressTaken = false;
++
+   /// FramePtrSpillOffset - If HasStackFrame, this records the frame pointer
+   /// spill stack offset.
+   unsigned FramePtrSpillOffset = 0;
+@@ -107,6 +122,12 @@
+   /// VarArgsFrameIndex - FrameIndex for start of varargs area.
+   int VarArgsFrameIndex = 0;
+ 
++  /// ForwardedMustTailRegParms - A list of virtual and physical registers that
++  /// must be forwarded to every musttail call.  On ARM the variadic argument
++  /// window is only ever the four core argument registers, so the inline
++  /// capacity is 4.
++  SmallVector<ForwardedRegister, 4> ForwardedMustTailRegParms;
++
+   /// HasITBlocks - True if IT blocks have been inserted.
+   bool HasITBlocks = false;
+ 
+@@ -179,6 +200,9 @@
+   unsigned getArgRegsSaveSize() const { return ArgRegsSaveSize; }
+   void setArgRegsSaveSize(unsigned s) { ArgRegsSaveSize = s; }
+ 
++  unsigned getByValArgRegsSaveSize() const { return ByValArgRegsSaveSize; }
++  void setByValArgRegsSaveSize(unsigned s) { ByValArgRegsSaveSize = s; }
++
+   unsigned getReturnRegsCount() const { return ReturnRegsCount; }
+   void setReturnRegsCount(unsigned s) { ReturnRegsCount = s; }
+ 
+@@ -191,6 +215,13 @@
+   bool isLRSpilled() const { return LRSpilled; }
+   void setLRIsSpilled(bool s) { LRSpilled = s; }
+ 
++  bool isAddressOfReturnAddressTaken() const {
++    return AddressOfReturnAddressTaken;
++  }
++  void setAddressOfReturnAddressTaken(bool s) {
++    AddressOfReturnAddressTaken = s;
++  }
++
+   unsigned getFramePtrSpillOffset() const { return FramePtrSpillOffset; }
+   void setFramePtrSpillOffset(unsigned o) { FramePtrSpillOffset = o; }
+ 
+@@ -251,6 +282,10 @@
+   int getVarArgsFrameIndex() const { return VarArgsFrameIndex; }
+   void setVarArgsFrameIndex(int Index) { VarArgsFrameIndex = Index; }
+ 
++  SmallVectorImpl<ForwardedRegister> &getForwardedMustTailRegParms() {
++    return ForwardedMustTailRegParms;
++  }
++
+   bool hasITBlocks() const { return HasITBlocks; }
+   void setHasITBlocks(bool h) { HasITBlocks = h; }
+ 
+--- a/llvm/lib/Target/ARM/ARMSubtarget.cpp
++++ b/llvm/lib/Target/ARM/ARMSubtarget.cpp
+@@ -533,9 +533,11 @@
+ 
+   // If R7 is the frame pointer, we must split at R7 to ensure that the
+   // previous frame pointer (R7) and return address (LR) are adjacent on the
+-  // stack, to form a valid frame record.
++  // stack, to form a valid frame record. The same when the function takes the
++  // address of its return address, which is the LR half of that record.
+   if (getFramePointerReg() == ARM::R7 &&
+-      MF.getTarget().Options.FramePointerIsReserved(MF))
++      (MF.getTarget().Options.FramePointerIsReserved(MF) ||
++       MF.getInfo<ARMFunctionInfo>()->isAddressOfReturnAddressTaken()))
+     return SplitR7;
+ 
+   // Returns SplitR11WindowsSEH when the stack pointer needs to be
+--- a/llvm/lib/Target/ARM/ARMTargetMachine.cpp
++++ b/llvm/lib/Target/ARM/ARMTargetMachine.cpp
+@@ -97,6 +97,7 @@
+   initializeARMLoadStoreOptLegacyPass(Registry);
+   initializeARMPreAllocLoadStoreOptLegacyPass(Registry);
+   initializeARMParallelDSPPass(Registry);
++  initializeARMWinEHFramePass(Registry);
+   initializeARMBranchTargetsPass(Registry);
+   initializeARMConstantIslandsPass(Registry);
+   initializeARMExecutionDomainFixPass(Registry);
+@@ -399,6 +400,11 @@
+ }
+ 
+ bool ARMPassConfig::addPreISel() {
++  // Windows C++ EH frames are never realigned (as by MSVC); this runs after
++  // WinEHPrepare, whose demoted values are allocas too.
++  if (TM->getTargetTriple().isOSWindows())
++    addPass(createARMWinEHFramePass());
++
+   if ((TM->getOptLevel() != CodeGenOptLevel::None &&
+        EnableGlobalMerge == cl::boolOrDefault::BOU_UNSET) ||
+       EnableGlobalMerge == cl::boolOrDefault::BOU_TRUE) {
+--- /dev/null
++++ b/llvm/lib/Target/ARM/ARMWinEHFrame.cpp
+@@ -0,0 +1,161 @@
++//===-- ARMWinEHFrame.cpp - No realignment in Windows C++ EH frames -------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// The C++ EH tables read by __CxxFrameHandler3 give UnwindHelp and every catch
++// object as a constant offset from SP at function entry. A dynamically
++// realigned frame has no such constant for its locals, so -- like MSVC, which
++// never realigns such a frame -- a Windows ARM function with C++ EH funclets
++// gets none:
++//
++//  * "no-realign-stack" caps every stack object the code generator creates
++//    itself (SelectionDAG temporaries, spill slots) at the stack alignment;
++//  * an alloca aligned above the stack alignment is carved out of an
++//    over-sized block that is not, at an aligned pointer computed at run time
++//    -- MSVC's own technique;
++//  * an over-aligned catch object, which the runtime writes at a constant
++//    offset from the entry SP, can be served neither way and is diagnosed;
++//    so is an over-aligned alloca passed to llvm.localescape, whose frame
++//    index the funclets address directly.
++//
++// This runs after WinEHPrepare, whose demoted values are allocas too.
++//
++//===----------------------------------------------------------------------===//
++
++#include "ARM.h"
++#include "llvm/CodeGen/TargetFrameLowering.h"
++#include "llvm/CodeGen/TargetPassConfig.h"
++#include "llvm/CodeGen/TargetSubtargetInfo.h"
++#include "llvm/IR/DiagnosticInfo.h"
++#include "llvm/IR/EHPersonalities.h"
++#include "llvm/IR/IRBuilder.h"
++#include "llvm/IR/InstIterator.h"
++#include "llvm/IR/Instructions.h"
++#include "llvm/IR/IntrinsicInst.h"
++#include "llvm/InitializePasses.h"
++#include "llvm/Pass.h"
++#include "llvm/Target/TargetMachine.h"
++
++using namespace llvm;
++
++#define DEBUG_TYPE "arm-wineh-frame"
++
++namespace {
++class ARMWinEHFrame : public FunctionPass {
++public:
++  static char ID;
++  ARMWinEHFrame() : FunctionPass(ID) {}
++
++  bool runOnFunction(Function &F) override;
++
++  void getAnalysisUsage(AnalysisUsage &AU) const override {
++    AU.addRequired<TargetPassConfig>();
++  }
++
++  StringRef getPassName() const override {
++    return "ARM Windows C++ EH frame preparation";
++  }
++};
++} // end anonymous namespace
++
++char ARMWinEHFrame::ID = 0;
++
++INITIALIZE_PASS_BEGIN(ARMWinEHFrame, DEBUG_TYPE,
++                      "ARM Windows C++ EH frame preparation", false, false)
++INITIALIZE_PASS_DEPENDENCY(TargetPassConfig)
++INITIALIZE_PASS_END(ARMWinEHFrame, DEBUG_TYPE,
++                    "ARM Windows C++ EH frame preparation", false, false)
++
++FunctionPass *llvm::createARMWinEHFramePass() { return new ARMWinEHFrame(); }
++
++static bool hasFuncletPads(const Function &F) {
++  for (const BasicBlock &BB : F)
++    if (BB.isEHPad() && !BB.isLandingPad())
++      return true;
++  return false;
++}
++
++bool ARMWinEHFrame::runOnFunction(Function &F) {
++  if (!F.hasPersonalityFn() ||
++      classifyEHPersonality(F.getPersonalityFn()) != EHPersonality::MSVC_CXX ||
++      !hasFuncletPads(F))
++    return false;
++  const TargetMachine &TM =
++      getAnalysis<TargetPassConfig>().getTM<TargetMachine>();
++  if (!TM.getTargetTriple().isOSWindows())
++    return false;
++
++  const Align StackAlign =
++      TM.getSubtargetImpl(F)->getFrameLowering()->getStackAlign();
++  const DataLayout &DL = F.getDataLayout();
++
++  SmallVector<AllocaInst *, 4> OverAligned;
++  for (Instruction &I : instructions(F))
++    if (auto *AI = dyn_cast<AllocaInst>(&I))
++      if (AI->getAlign() > StackAlign)
++        OverAligned.push_back(AI);
++
++  for (AllocaInst *AI : OverAligned) {
++    const uint64_t A = AI->getAlign().value();
++    Instruction *Pinned = nullptr; // a user that needs the alloca itself
++    bool IsCatchObject = false;
++    for (User *U : AI->users()) {
++      if (auto *CP = dyn_cast<CatchPadInst>(U)) {
++        Pinned = CP;
++        IsCatchObject = true;
++      } else if (auto *II = dyn_cast<IntrinsicInst>(U);
++                 II && II->getIntrinsicID() == Intrinsic::localescape &&
++                 !Pinned) {
++        Pinned = II;
++      }
++    }
++    if (Pinned) {
++      F.getContext().diagnose(DiagnosticInfoUnsupported(
++          F,
++          "Windows C++ exception handling on ARM: " +
++              Twine(IsCatchObject ? "the catch object"
++                                  : "a local passed to llvm.localescape") +
++              " is " + Twine(A) + "-byte aligned, but the stack is only " +
++              Twine(StackAlign.value()) +
++              "-byte aligned and it cannot be realigned",
++          Pinned->getDebugLoc()));
++      continue;
++    }
++
++    // An over-sized block with the stack alignment, and the object at the
++    // first suitably aligned address inside it: Raw + (A - StackAlign) rounded
++    // down to a multiple of A lies in [Raw, Raw + A - StackAlign].
++    IRBuilder<> B(AI);
++    Type *IntPtrTy = DL.getIntPtrType(AI->getType());
++    const uint64_t Slack = A - StackAlign.value();
++    Value *Bytes = ConstantInt::get(
++        IntPtrTy, DL.getTypeAllocSize(AI->getAllocatedType()).getFixedValue());
++    if (AI->isArrayAllocation())
++      Bytes = B.CreateMul(B.CreateZExtOrTrunc(AI->getArraySize(), IntPtrTy),
++                          Bytes);
++    Bytes = B.CreateAdd(Bytes, ConstantInt::get(IntPtrTy, Slack));
++    AllocaInst *Raw =
++        B.CreateAlloca(B.getInt8Ty(), AI->getAddressSpace(), Bytes);
++    Raw->setAlignment(StackAlign);
++    Raw->takeName(AI);
++    Value *Bumped = B.CreateConstInBoundsGEP1_64(B.getInt8Ty(), Raw, Slack);
++    Value *Aligned = B.CreateIntrinsic(
++        Intrinsic::ptrmask, {AI->getType(), IntPtrTy},
++        {Bumped, ConstantInt::getSigned(IntPtrTy, -static_cast<int64_t>(A))});
++
++    // Lifetime markers must name an alloca; they cover the whole block.
++    for (Use &U : make_early_inc_range(AI->uses()))
++      if (auto *II = dyn_cast<IntrinsicInst>(U.getUser()))
++        if (II->isLifetimeStartOrEnd())
++          U.set(Raw);
++    AI->replaceAllUsesWith(Aligned);
++    AI->eraseFromParent();
++  }
++
++  F.addFnAttr("no-realign-stack");
++  return true;
++}
+--- a/llvm/lib/Target/ARM/CMakeLists.txt
++++ b/llvm/lib/Target/ARM/CMakeLists.txt
+@@ -57,6 +57,7 @@
+   ARMTargetMachine.cpp
+   ARMTargetObjectFile.cpp
+   ARMTargetTransformInfo.cpp
++  ARMWinEHFrame.cpp
+   MLxExpansionPass.cpp
+   MVEGatherScatterLowering.cpp
+   MVELaneInterleavingPass.cpp
+--- /dev/null
++++ b/llvm/test/CodeGen/ARM/addressofreturnaddress.ll
+@@ -0,0 +1,94 @@
++; RUN: llc -O2 -mtriple=thumbv7-pc-windows-msvc < %s | FileCheck %s --check-prefixes=CHECK,O2W
++; RUN: llc -O0 -mtriple=thumbv7-pc-windows-msvc < %s | FileCheck %s --check-prefixes=CHECK,O0W
++; RUN: llc -O2 -mtriple=thumbv7-linux-gnueabihf < %s | FileCheck %s --check-prefixes=CHECK,ELF
++
++; llvm.addressofreturnaddress (MSVC's _AddressOfReturnAddress) is the address
++; of the stack slot that holds the return address: the LR half of the
++; {frame pointer, LR} frame record, at frame pointer + 4. Without a lowering
++; the ARM backend crashed. LR must be spilled even in a leaf function, or the
++; frame pointer + 4 is SP at entry, where no return address is stored.
++; Each function stores the result through a global, so it cannot be dropped.
++
++@r = global ptr null
++
++declare ptr @llvm.addressofreturnaddress.p0()
++declare void @callee()
++
++; A leaf: LR is saved only because its address is taken.
++define void @leaf() noinline {
++; CHECK-LABEL: leaf:
++; O2W:         push.w {r11, lr}
++; O2W-NEXT:    .seh_save_regs_w {r11, lr}
++; O2W-NEXT:    mov r11, sp
++; O2W:         add.w r0, r11, #4
++; O0W:         push.w {r11, lr}
++; O0W-NEXT:    .seh_save_regs_w {r11, lr}
++; O0W-NEXT:    mov r11, sp
++; O0W:         mov r0, r11
++; O0W-NEXT:    adds r0, #4
++; ELF:         push {r7, lr}
++; ELF:         mov r7, sp
++; ELF:         adds r0, r7, #4
++  %a = call ptr @llvm.addressofreturnaddress.p0()
++  store volatile ptr %a, ptr @r
++  ret void
++}
++
++; A non-leaf, which saves LR anyway.
++define void @nonleaf() noinline {
++; CHECK-LABEL: nonleaf:
++; O2W:         push.w {r11, lr}
++; O2W:         mov r11, sp
++; O2W:         add.w r0, r11, #4
++; O0W:         push.w {r11, lr}
++; O0W:         mov r11, sp
++; O0W:         mov r0, r11
++; O0W-NEXT:    adds r0, #4
++; ELF:         push {r7, lr}
++; ELF:         mov r7, sp
++; ELF:         adds r0, r7, #4
++  %a = call ptr @llvm.addressofreturnaddress.p0()
++  store volatile ptr %a, ptr @r
++  call void @callee()
++  ret void
++}
++
++; Callee-saved registers up to r11. On ELF Thumb2 the frame pointer is r7, so
++; the push is split at r7 to keep r7 and LR adjacent: one push {r4-r11, lr}
++; would leave r7 + 4 pointing at the saved r8. On Windows the frame pointer is
++; r11, which sits right below LR in a single push.
++@v = global i32 0
++define void @manycsr() noinline {
++; CHECK-LABEL: manycsr:
++; O2W:         push.w {r4, r5, r6, r7, r8, r9, r10, r11, lr}
++; O2W:         add.w r11, sp, #28
++; O2W:         add.w r0, r11, #4
++; O0W:         push.w {r4, r5, r6, r7, r8, r11, lr}
++; O0W:         add.w r11, sp, #20
++; O0W:         mov [[R:r[0-9]+]], r11
++; O0W-NEXT:    adds [[R]], #4
++; ELF:         push {r4, r5, r6, r7, lr}
++; ELF:         add r7, sp, #12
++; ELF:         push.w {r8, r9, r10, r11}
++; ELF:         adds r0, r7, #4
++  %x0 = load volatile i32, ptr @v
++  %x1 = load volatile i32, ptr @v
++  %x2 = load volatile i32, ptr @v
++  %x3 = load volatile i32, ptr @v
++  %x4 = load volatile i32, ptr @v
++  %x5 = load volatile i32, ptr @v
++  %x6 = load volatile i32, ptr @v
++  %x7 = load volatile i32, ptr @v
++  call void @callee()
++  %a = call ptr @llvm.addressofreturnaddress.p0()
++  store volatile ptr %a, ptr @r
++  store volatile i32 %x0, ptr @v
++  store volatile i32 %x1, ptr @v
++  store volatile i32 %x2, ptr @v
++  store volatile i32 %x3, ptr @v
++  store volatile i32 %x4, ptr @v
++  store volatile i32 %x5, ptr @v
++  store volatile i32 %x6, ptr @v
++  store volatile i32 %x7, ptr @v
++  ret void
++}
+--- /dev/null
++++ b/llvm/test/CodeGen/ARM/coff-feat00.ll
+@@ -0,0 +1,29 @@
++; RUN: llc -mtriple=thumbv7-windows-msvc -o - %s | FileCheck %s --check-prefix=PLAIN
++; RUN: sed -e s/.cfg:// %s | llc -mtriple=thumbv7-windows-msvc -o - | FileCheck %s --check-prefix=CFG
++; RUN: sed -e s/.cfg:// %s | llc -mtriple=thumbv7-windows-msvc -filetype=obj -o %t.obj
++; RUN: llvm-readobj --symbols %t.obj | FileCheck %s --check-prefix=OBJ
++
++; ARM COFF objects carry @feat.00, as x86 and AArch64 ones do. The linker
++; reads an object's .gfids/.giats tables only when @feat.00 has the /guard:cf
++; bit (0x800); without the symbol, lld-link /guard:cf left the address-taken
++; IAT table of an ARM32 image empty and never registered the delay-load thunk
++; of an address-taken import. MSVC's ARM cl emits it on every object too.
++
++declare dllimport i32 @imported()
++
++define ptr @take_address() {
++  ret ptr @imported
++}
++
++; ARM assembly quotes the name, since @ is not an identifier character here.
++; PLAIN: "@feat.00" = 0
++; CFG: "@feat.00" = 2048
++; CFG: .section .giats$y,"dr"
++; CFG-NEXT: .symidx __imp_imported
++
++; OBJ:      Name: @feat.00
++; OBJ-NEXT: Value: 2048
++; OBJ-NEXT: Section: IMAGE_SYM_ABSOLUTE
++
++!0 = !{i32 2, !"cfguard", i32 2}
++;cfg: !llvm.module.flags = !{!0}
+--- /dev/null
++++ b/llvm/test/CodeGen/ARM/musttail-varargs-forward-thisadjust.ll
+@@ -0,0 +1,89 @@
++; RUN: llc -verify-machineinstrs -mtriple=thumbv7-unknown-windows-msvc %s -o - | FileCheck %s
++; RUN: llc -verify-machineinstrs -mtriple=armv7-unknown-linux-gnueabihf %s -o - | FileCheck %s
++; RUN: llc -verify-machineinstrs -mtriple=armv7-unknown-linux-gnueabi %s -o - | FileCheck %s
++
++; The this-adjusting thunks of the Microsoft C++ ABI are variadic musttail
++; forwarders too, so they have to keep the unnamed argument registers intact for
++; the same reason a virtual member pointer thunk does.  They differ from it in
++; two ways that are worth covering separately: the register they need is a scratch
++; for an offset loaded out of the object rather than the branch target, the tail
++; branch is direct, and the "vtordispex" form needs two live values at once
++; because it walks a vbptr and then a vbtable.
++;
++; Clang reaches these shapes whenever the overrider's signature contains a type
++; it cannot lower yet - a member pointer to an incomplete class, or an incomplete
++; class passed by value - which makes the thunk unprototyped and therefore a
++; perfect-forwarding musttail thunk.  See clang/test/CodeGenCXX/ms-thunks-unprototyped.cpp
++; for the front end side.  The mangled names are "$4"/"$2"/"$0" (vtordisp) and
++; "$R4"/"$R2"/"$R0" (vtordispex); unlike "??_9...$B..." these look like ordinary
++; C++ symbols, so nothing downstream can pick them out by name.
++
++declare arm_aapcs_vfpcc void @adjusted_target(ptr, ...)
++declare arm_aapcs_vfpcc void @adjusted_target_ex(ptr, ...)
++declare arm_aapcs_vfpcc void @adjusted_target_nv(ptr, i32, i32, i32)
++
++; The "$4" vtordisp form: one load, one subtract, one direct tail branch.  The
++; unnamed arguments occupy r1-r3, so the offset has to be loaded somewhere else.
++define arm_aapcs_vfpcc void @vtordisp_thunk(ptr %this, ...) nounwind {
++; CHECK-LABEL: vtordisp_thunk:
++; CHECK:       ldr{{(\.w)?}} r12, [r0, #-4]
++; CHECK-NOT:   ldr{{(\.w)?}} r1,
++; CHECK-NOT:   ldr{{(\.w)?}} r2,
++; CHECK-NOT:   ldr{{(\.w)?}} r3,
++; CHECK:       sub{{(\.w)?}} r0, r0, r12
++; CHECK:       b{{(\.w)?}} adjusted_target
++  %offp = getelementptr inbounds i8, ptr %this, i32 -4
++  %off = load i32, ptr %offp, align 4
++  %negoff = sub i32 0, %off
++  %adj = getelementptr i8, ptr %this, i32 %negoff
++  musttail call arm_aapcs_vfpcc void (ptr, ...) @adjusted_target(ptr %adj, ...)
++  ret void
++}
++
++; The "$R" vtordispex form: vtordisp, then the vbptr, then a vbase offset out of
++; the vbtable.  Two values are live across the middle of it, and only one register
++; outside the argument window is available, so this is the shape that fails first
++; if the forwarded registers are not modelled.  Which registers the allocator
++; picks for the second value is not fixed by the ABI, so the assertions below pin
++; only the first load and then forbid every argument register for the rest of the
++; body; the final branch keeps the whole run from passing on a truncated body.
++define arm_aapcs_vfpcc void @vtordispex_thunk(ptr %this, ...) nounwind {
++; CHECK-LABEL: vtordispex_thunk:
++; CHECK:       ldr{{(\.w)?}} r12, [r0, #-4]
++; CHECK-NOT:   ldr{{(\.w)?}} r1,
++; CHECK-NOT:   ldr{{(\.w)?}} r2,
++; CHECK-NOT:   ldr{{(\.w)?}} r3,
++; CHECK:       b{{(\.w)?}} adjusted_target_ex
++  %offp = getelementptr inbounds i8, ptr %this, i32 -4
++  %off = load i32, ptr %offp, align 4
++  %negoff = sub i32 0, %off
++  %adj = getelementptr i8, ptr %this, i32 %negoff
++  %vbptrp = getelementptr inbounds i8, ptr %adj, i32 -8
++  %vbtable = load ptr, ptr %vbptrp, align 4
++  %vbslot = getelementptr inbounds i32, ptr %vbtable, i32 2
++  %vbase = load i32, ptr %vbslot, align 4
++  %adj2 = getelementptr inbounds i8, ptr %vbptrp, i32 %vbase
++  %adj3 = getelementptr i8, ptr %adj2, i32 8
++  musttail call arm_aapcs_vfpcc void (ptr, ...) @adjusted_target_ex(ptr %adj3, ...)
++  ret void
++}
++
++; Control: the same adjustment in a non-variadic forwarder whose four arguments
++; already fill r0-r3.  This one was compiled correctly before the forwarded
++; registers were modelled, which is what shows that the argument window being
++; live is the whole difference; its output must not change.
++define arm_aapcs_vfpcc void @vtordisp_nonvariadic_control(ptr %this, i32 %a, i32 %b, i32 %c) nounwind {
++; CHECK-LABEL: vtordisp_nonvariadic_control:
++; CHECK:       ldr{{(\.w)?}} r12, [r0, #-4]
++; CHECK-NOT:   ldr{{(\.w)?}} r1,
++; CHECK-NOT:   ldr{{(\.w)?}} r2,
++; CHECK-NOT:   ldr{{(\.w)?}} r3,
++; CHECK:       sub{{(\.w)?}} r0, r0, r12
++; CHECK:       b{{(\.w)?}} adjusted_target_nv
++  %offp = getelementptr inbounds i8, ptr %this, i32 -4
++  %off = load i32, ptr %offp, align 4
++  %negoff = sub i32 0, %off
++  %adj = getelementptr i8, ptr %this, i32 %negoff
++  musttail call arm_aapcs_vfpcc void @adjusted_target_nv(ptr %adj, i32 %a, i32 %b, i32 %c)
++  ret void
++}
+--- /dev/null
++++ b/llvm/test/CodeGen/ARM/musttail-varargs-forward.ll
+@@ -0,0 +1,110 @@
++; RUN: llc -verify-machineinstrs -mtriple=thumbv7-unknown-windows-msvc %s -o - | FileCheck %s
++; RUN: llc -verify-machineinstrs -mtriple=armv7-unknown-linux-gnueabihf %s -o - | FileCheck %s
++; RUN: llc -verify-machineinstrs -mtriple=armv7-unknown-linux-gnueabi %s -o - | FileCheck %s
++
++; A variadic function that forwards its arguments with a musttail call must
++; treat the unnamed argument registers as live.  Forwarders of exactly this
++; shape are what the Microsoft C++ ABI emits for a virtual member pointer call
++; ("??_9<class>@@$B<slot>AA") and for a thunk to an unprototyped function, so
++; picking one of them as scratch silently destroys the caller's first argument.
++; When the target returns a struct that argument is the hidden return buffer
++; pointer, which turns the defect into a wild store.
++;
++; Before this was fixed the vtable load was allocated the first still-unused
++; argument register - r1 for @fwd_variadic, r2 for @fwd_variadic_named1 - even
++; though the whole point of the function is to hand those registers on
++; untouched.
++
++; The unnamed arguments occupy r1-r3, so the scratch has to come from outside the
++; argument window; r12 is what the allocator reaches for, matching the
++; non-variadic forwarder at the bottom of this file.
++define arm_aapcs_vfpcc void @fwd_variadic(ptr %this, ...) nounwind {
++; CHECK-LABEL: fwd_variadic:
++; CHECK: ldr{{(\.w)?}} r12, [r0]
++; CHECK: ldr{{(\.w)?}} r12, [r12, #4]
++; CHECK: bx r12
++  %vt = load ptr, ptr %this, align 4
++  %slot = getelementptr inbounds ptr, ptr %vt, i32 1
++  %fn = load ptr, ptr %slot, align 4
++  musttail call arm_aapcs_vfpcc void (ptr, ...) %fn(ptr %this, ...)
++  ret void
++}
++
++; One named prefix argument in r1 was already respected; the unnamed window is
++; r2-r3, so again nothing in r0-r3 is free.
++define arm_aapcs_vfpcc void @fwd_variadic_named1(ptr %this, i32 %n, ...) nounwind {
++; CHECK-LABEL: fwd_variadic_named1:
++; CHECK: ldr{{(\.w)?}} r12, [r0]
++; CHECK: ldr{{(\.w)?}} r12, [r12, #4]
++; CHECK: bx r12
++  %vt = load ptr, ptr %this, align 4
++  %slot = getelementptr inbounds ptr, ptr %vt, i32 1
++  %fn = load ptr, ptr %slot, align 4
++  musttail call arm_aapcs_vfpcc void (ptr, i32, ...) %fn(ptr %this, i32 %n, ...)
++  ret void
++}
++
++; Two values are live at once, which previously took r1 *and* r2.  This is the
++; shape that matters for a struct-returning callee: the hidden return buffer
++; pointer travels in the unnamed window, so a second scratch register taken from
++; it is a wild store rather than a wrong argument.  Which registers the
++; allocator picks instead is not fixed by the ABI, so only assert that no
++; argument register is written or branched to.
++define arm_aapcs_vfpcc void @fwd_variadic_two_scratch(ptr %this, ...) nounwind {
++; CHECK-LABEL: fwd_variadic_two_scratch:
++; CHECK-NOT: ldr r1,
++; CHECK-NOT: ldr r2,
++; CHECK-NOT: ldr r3,
++; The register number must be anchored to end-of-line: FileCheck patterns are
++; substring searches over whitespace-canonicalized input, so a bare "bx r1"
++; also matches the "bx r12" this patch is supposed to produce.
++; CHECK-NOT: bx r1{{$}}
++; CHECK-NOT: bx r2{{$}}
++; CHECK-NOT: bx r3{{$}}
++; A positive anchor as well, so a truncated or empty label block cannot satisfy
++; the CHECK-NOTs vacuously.  Which non-argument register the allocator picks is
++; not fixed by the ABI, so accept any of them.
++; CHECK: bx {{r([4-9]|1[012])}}
++  %vt = load ptr, ptr %this, align 4
++  %s1 = getelementptr inbounds ptr, ptr %vt, i32 1
++  %f1 = load ptr, ptr %s1, align 4
++  %s2 = getelementptr inbounds ptr, ptr %vt, i32 5
++  %f2 = load ptr, ptr %s2, align 4
++  %c = icmp eq ptr %f1, null
++  %fn = select i1 %c, ptr %f2, ptr %f1
++  musttail call arm_aapcs_vfpcc void (ptr, ...) %fn(ptr %this, ...)
++  ret void
++}
++
++; The same defect reaches a second kind of thunk: a this-adjusting ("$4"
++; vtordisp) thunk under virtual inheritance is also a variadic musttail
++; forwarder, but its scratch register holds an offset loaded from the object and
++; its tail branch is direct.  Unlike the virtual member pointer thunks these
++; carry an ordinary mangled name.
++declare arm_aapcs_vfpcc void @adjusted_target(ptr, ...)
++
++define arm_aapcs_vfpcc void @fwd_variadic_thisadjust(ptr %this, ...) nounwind {
++; CHECK-LABEL: fwd_variadic_thisadjust:
++; CHECK: ldr{{(\.w)?}} r12, [r0, #-4]
++; CHECK: sub{{(s|\.w)?}} r0, r0, r12
++  %offp = getelementptr inbounds i8, ptr %this, i32 -4
++  %off = load i32, ptr %offp, align 4
++  %negoff = sub i32 0, %off
++  %adj = getelementptr inbounds i8, ptr %this, i32 %negoff
++  musttail call arm_aapcs_vfpcc void (ptr, ...) @adjusted_target(ptr %adj, ...)
++  ret void
++}
++
++; Control: a non-variadic forwarder whose four arguments already fill r0-r3 was
++; always compiled correctly.  Its output must not change.
++define arm_aapcs_vfpcc void @fwd_nonvariadic_all4(ptr %this, i32 %a, i32 %b, i32 %c) nounwind {
++; CHECK-LABEL: fwd_nonvariadic_all4:
++; CHECK: ldr{{(\.w)?}} r12, [r0]
++; CHECK: ldr{{(\.w)?}} r12, [r12, #4]
++; CHECK: bx r12
++  %vt = load ptr, ptr %this, align 4
++  %slot = getelementptr inbounds ptr, ptr %vt, i32 1
++  %fn = load ptr, ptr %slot, align 4
++  musttail call arm_aapcs_vfpcc void %fn(ptr %this, i32 %a, i32 %b, i32 %c)
++  ret void
++}
+--- /dev/null
++++ b/llvm/test/CodeGen/ARM/musttail-varargs-vastart.ll
+@@ -0,0 +1,206 @@
++; RUN: rm -rf %t && split-file %s %t
++
++; The three triples the other ARM musttail forwarder tests use: Thumb2/COFF with
++; SEH unwind, Thumb2/ELF, and ARM mode.  The epilogue that has to release the
++; argument-register save area before the tail branch is target-independent, so
++; all three must show it.
++; RUN: llc -verify-machineinstrs -mtriple=thumbv7-unknown-windows-msvc %t/tail.ll -o - | FileCheck %s
++; RUN: llc -verify-machineinstrs -mtriple=thumbv7-unknown-linux-gnueabihf %t/tail.ll -o - | FileCheck %s
++; RUN: llc -verify-machineinstrs -mtriple=armv7-unknown-linux-gnueabi %t/tail.ll -o - | FileCheck %s
++
++; The frame, read out of the post-PEI MIR rather than inferred from the asm.
++; RUN: llc -mtriple=thumbv7-unknown-windows-msvc -stop-after=prolog-epilog %t/tail.ll -o - | FileCheck %s --check-prefix=MIR
++
++; A split byval caller: LLVM 23 performs this musttail itself, outside the
++; change (stock 23.1.0 emits identical code).
++; RUN: llc -verify-machineinstrs -mtriple=thumbv7-unknown-windows-msvc %t/byval.ll -o - | FileCheck %s --check-prefix=BYVAL
++
++; The shape that must STILL be rejected.
++; RUN: not --crash llc -mtriple=thumbv8m.base-none-eabi %t/thumb1.ll -o - 2>&1 | FileCheck %s --check-prefix=FATAL
++
++; A variadic function that calls va_start gets an argument-register save area,
++; and ARMTargetLowering::IsEligibleForTailCallOptimization used to refuse every
++; tail call out of such a function.  For an ordinary call that is invisible - it
++; silently becomes a non-tail call - but a musttail call has nowhere to go and
++; LowerCall turns the refusal into "failed to perform tail call elimination on a
++; call site marked musttail".  A variadic forwarder that inspects its own
++; arguments before handing them on was therefore not compilable at all.
++;
++; The save area has two producers that LowerFormalArguments adds into one
++; counter: byval parameters split between registers and the stack, and the
++; va_start register window.  The change concerns only the va_start half, where
++; nothing outlives the frame.  The byval half is LLVM 23's own business: it
++; tail-calls past a split byval itself (byval_split_tail below; and
++; byval_split_musttail in byval.ll, copying the object into the outgoing
++; argument area before the branch), and the change must leave that as it is.
++
++;--- tail.ll
++
++declare void @llvm.va_start(ptr)
++declare void @llvm.va_end(ptr)
++declare void @sink(ptr)
++declare void @plain()
++
++%struct.big = type { [8 x i32] }
++
++; POSITIVE.  This is the shape that used to abort the backend: the whole
++; unnamed window r1-r3 is spilled for va_start, read through the va_list, and
++; then handed on unchanged by a musttail call.
++;
++; Three things have to be true at the branch, and each is asserted below:
++;   1. the save area is allocated and written (sub sp / stm),
++;   2. r1-r3 survive the intervening call and are restored (patch 0003's
++;      forwarding, which only becomes observable now that the call is a real
++;      tail call),
++;   3. SP is back at the incoming value before the branch - the save area is
++;      released *after* the callee-saved pop, by the "add sp, #12" that mirrors
++;      the "sub sp, #12" in the prologue.
++define void @fwd_vastart(ptr %pfn, ...) nounwind {
++; CHECK-LABEL: fwd_vastart:
++; CHECK:       sub sp, {{(sp, )?}}#12
++; CHECK:       stm r0{{!?}}, {r1, r2, r3}
++; CHECK:       bl sink
++; CHECK:       mov r1, r{{[0-9]+}}
++; CHECK-NEXT:  mov r2, r{{[0-9]+}}
++; CHECK-NEXT:  mov r3, r{{[0-9]+}}
++; CHECK:       pop{{(\.w)?}} {
++; CHECK:       add sp, {{(sp, )?}}#12
++; CHECK:       bx r{{[0-9]+$}}
++entry:
++  %ap = alloca ptr, align 4
++  call void @llvm.va_start(ptr %ap)
++  call void @sink(ptr %ap)
++  call void @llvm.va_end(ptr %ap)
++  musttail call void (ptr, ...) %pfn(ptr %pfn, ...)
++  ret void
++}
++
++; POSITIVE, one named prefix argument.  The unnamed window is r2-r3, so the save
++; area is 8 bytes rather than 12 and the epilogue has to release exactly that.
++define void @fwd_vastart_named1(ptr %pfn, i32 %n, ...) nounwind {
++; CHECK-LABEL: fwd_vastart_named1:
++; CHECK:       sub sp, {{(sp, )?}}#8
++; CHECK:       bl sink
++; CHECK:       pop{{(\.w)?}} {
++; CHECK:       add sp, {{(sp, )?}}#8
++; CHECK:       bx r{{[0-9]+$}}
++entry:
++  %ap = alloca ptr, align 4
++  call void @llvm.va_start(ptr %ap)
++  call void @sink(ptr %ap)
++  call void @llvm.va_end(ptr %ap)
++  musttail call void (ptr, i32, ...) %pfn(ptr %pfn, i32 %n, ...)
++  ret void
++}
++
++; ARMED FLOOR for the two negatives below.  Same variadic signature, no
++; va_start, so there is no save area and the tail call happens.  On LLVM 23 the
++; very next function, which differs from this one only by the presence of
++; va_start, tail-calls too (LLVM 18 emitted a call-and-return there): the pair
++; checks that va_start does not change the code generator's decision for an
++; ordinary call.  Each negative forbids the call-and-return explicitly, so it is
++; not a directive that could never read the other way: LLVM 18's output fails it.
++define void @tail_novastart(ptr %pfn, ...) nounwind {
++; CHECK-LABEL: tail_novastart:
++; CHECK:       b plain
++entry:
++  tail call void @plain()
++  ret void
++}
++
++; NEGATIVE - the scope of the change.  An ORDINARY call in a va_start variadic
++; function keeps the code generator's own decision; the change must not alter
++; it.  LLVM 23 tail-calls this one (stock 23.1.0 emits `b plain` for all three
++; triples above; LLVM 18 emitted `bl plain`), so the expected output is LLVM
++; 23's, unchanged.
++define void @tail_vastart(ptr %pfn, ...) nounwind {
++; CHECK-LABEL: tail_vastart:
++; CHECK-NOT:   bl plain
++; CHECK:       b plain
++entry:
++  %ap = alloca ptr, align 4
++  call void @llvm.va_start(ptr %ap)
++  call void @llvm.va_end(ptr %ap)
++  tail call void @plain()
++  ret void
++}
++
++; NEGATIVE - a caller with a byval argument split between r3 and the stack.
++; StoreByValRegs writes the r3 half into a fixed object below the CFA (the
++; "sub sp, #4") and sink() is handed its address by an ordinary call.  The
++; later call to plain() never receives it, and LLVM 23 tail-calls it after the
++; object is released (stock 23.1.0 emits the same `b plain` for all three
++; triples); the change must leave that exactly as it is.
++define void @byval_split_tail(i32 %a, i32 %b, i32 %c, ptr byval(%struct.big) align 4 %s) nounwind {
++; CHECK-LABEL: byval_split_tail:
++; CHECK:       sub sp, {{(sp, )?}}#4
++; CHECK:       bl sink
++; CHECK-NOT:   bl plain
++; CHECK:       b plain
++entry:
++  call void @sink(ptr %s)
++  tail call void @plain()
++  ret void
++}
++
++; MIR-LABEL: name: fwd_vastart
++; MIR: hasVAStart: true
++; MIR: hasMustTailInVarArgFunc: true
++; MIR: hasTailCall: true
++;
++; The save area, named rather than inferred: 12 bytes at CFA-12.
++; MIR: fixedStack:
++; MIR-NEXT: - { id: 0, type: default, offset: -12, size: 12,
++;
++; SP at the tail branch: -12 (save area) -24 (six callee-saved) -4 (locals) in
++; the prologue, and +4 +24 +12 in the epilogue, so the branch is taken with SP
++; back at its incoming value.  The TCRETURN's second operand is the SPDiff, and
++; it is 0 - this is a sibling call, so the callee finds its stack arguments
++; exactly where this function found its own.
++; MIR: $sp = frame-setup tSUBspi $sp, 3,
++; MIR: $sp = frame-destroy tADDspi $sp, 1,
++; MIR: $sp = frame-destroy t2LDMIA_UPD $sp,
++; MIR: $sp = frame-destroy tADDspi $sp, 3,
++; MIR: TCRETURNri killed renamable $r0, 0, csr_aapcs, implicit $sp, implicit $r1, implicit $r2, implicit $r3
++
++;--- byval.ll
++
++; A musttail call out of a caller with a byval argument split between r3 and
++; the stack.  Under LLVM 18 this failed; LLVM 23 lowers it itself, copying the
++; byval object into the outgoing argument area before the tail branch, and
++; stock 23.1.0 emits exactly the code below.  This is outside the change: it
++; must stay as LLVM 23 emits it.
++; BYVAL-LABEL: byval_split_musttail:
++; BYVAL:       sub sp, #4
++; BYVAL-NOT:   bl byval_callee
++; BYVAL:       b byval_callee
++%struct.big = type { [8 x i32] }
++declare void @byval_callee(i32, i32, i32, ptr byval(%struct.big) align 4)
++
++define void @byval_split_musttail(i32 %a, i32 %b, i32 %c, ptr byval(%struct.big) align 4 %s) nounwind {
++entry:
++  musttail call void @byval_callee(i32 %a, i32 %b, i32 %c, ptr byval(%struct.big) align 4 %s)
++  ret void
++}
++
++;--- thumb1.ll
++
++; Thumb1 is deliberately left on the old path.  There the save area is released
++; by Thumb1FrameLowering::emitPopSpecialFixUp, which is written around a
++; tBX_RET/tPOP_RET terminator and not around a TCRETURN, so a v8m.baseline
++; forwarder still reports the error rather than taking an untested epilogue.
++declare void @llvm.va_start(ptr)
++declare void @llvm.va_end(ptr)
++declare void @sink(ptr)
++
++define void @fwd_vastart_thumb1(ptr %pfn, ...) nounwind {
++entry:
++  %ap = alloca ptr, align 4
++  call void @llvm.va_start(ptr %ap)
++  call void @sink(ptr %ap)
++  call void @llvm.va_end(ptr %ap)
++  musttail call void (ptr, ...) %pfn(ptr %pfn, ...)
++  ret void
++}
++
++; FATAL: LLVM ERROR: failed to perform tail call elimination on a call site marked musttail
+--- /dev/null
++++ b/llvm/test/CodeGen/ARM/wineh-cxx-eh-align-catchobj.ll
+@@ -0,0 +1,48 @@
++; RUN: not llc -mtriple=thumbv7-pc-windows-msvc < %s -o %t.s 2>&1 | FileCheck %s
++
++; A catch object aligned above the 8-byte stack alignment. The runtime writes
++; the caught exception at a constant offset from SP at function entry, so the
++; object can neither live in a realigned frame (C++ EH frames are never
++; realigned) nor at an address computed at run time. The backend refuses it
++; with an error diagnostic naming the function -- not a crash, and not code
++; the runtime would misread. The same holds for an over-aligned local passed
++; to llvm.localescape (hand-written IR; clang emits it only for SEH): the
++; funclets address it by its frame index, so it cannot be moved either.
++
++; CHECK: error: {{.*}}in function catch_overaligned{{.*}}Windows C++ exception handling on ARM: the catch object is 16-byte aligned, but the stack is only 8-byte aligned
++; CHECK: error: {{.*}}in function esc{{.*}}Windows C++ exception handling on ARM: a local passed to llvm.localescape is 16-byte aligned, but the stack is only 8-byte aligned
++; CHECK-NOT: PLEASE submit a bug report
++
++%struct.A = type { [4 x i32] }
++@ti = external global i8
++declare void @g()
++declare void @use(ptr)
++declare i32 @__CxxFrameHandler3(...)
++
++define void @catch_overaligned() personality ptr @__CxxFrameHandler3 {
++entry:
++  %e = alloca %struct.A, align 16
++  invoke void @g() to label %ret unwind label %dispatch
++dispatch:
++  %cs = catchswitch within none [label %catch] unwind to caller
++catch:
++  %cp = catchpad within %cs [ptr @ti, i32 8, ptr %e]
++  call void @use(ptr %e) [ "funclet"(token %cp) ]
++  catchret from %cp to label %ret
++ret:
++  ret void
++}
++
++declare void @llvm.localescape(...)
++define void @esc() personality ptr @__CxxFrameHandler3 {
++entry:
++  %a = alloca [16 x i8], align 16
++  call void (...) @llvm.localescape(ptr %a)
++  invoke void @g() to label %cont unwind label %cleanup
++cont:
++  ret void
++cleanup:
++  %p = cleanuppad within none []
++  call void @use(ptr null) [ "funclet"(token %p) ]
++  cleanupret from %p unwind to caller
++}
+--- /dev/null
++++ b/llvm/test/CodeGen/ARM/wineh-cxx-eh-align.ll
+@@ -0,0 +1,82 @@
++; RUN: llc -O2 -mtriple=thumbv7-pc-windows-msvc < %s | FileCheck %s
++; RUN: llc -O0 -mtriple=thumbv7-pc-windows-msvc < %s -o %t.O0.s
++
++; Windows C++ EH frames are never dynamically realigned, as MSVC never realigns
++; them: the EH tables give UnwindHelp and the catch objects as constant offsets
++; from SP at function entry, which a realigned frame does not have.
++;  - A stack temporary the code generator creates for a vector (here for a
++;    variable-index extractelement) is capped at the 8-byte stack alignment, so
++;    it is stored without a :128 alignment hint and the frame is not realigned.
++;  - An alloca aligned above 8 gets an aligned address computed inside an
++;    over-sized 8-aligned block; the cleanup funclet reaches that address
++;    through r6, the parent's frame base.
++; The -O0 RUN line only has to compile: before, both functions stopped the
++; backend there too. "mov r6, sp" right after the prologue is what a realigned
++; frame does not have (it realigns SP between the two).
++; The calls are to external functions, so none of the EH can be proved dead.
++
++@vec = global <4 x i32> zeroinitializer, align 16
++@idx = global i32 0
++@out = global i32 0
++declare void @g()
++declare void @dtor()
++declare void @use(ptr)
++declare i32 @__CxxFrameHandler3(...)
++
++define void @vectemp() personality ptr @__CxxFrameHandler3 {
++; CHECK-LABEL: vectemp:
++; CHECK:       push {r6, lr}
++; CHECK:       sub sp, #[[#VT_SUB:]]
++; CHECK:       .seh_endprologue
++; CHECK-NEXT:  mov r6, sp
++; CHECK:       add.w [[TMP:r[0-9]+]], r6, #{{[0-9]+}}
++; CHECK:       vst1.64 {d16, d17}, {{\[}}[[TMP]]{{\]}}, r{{[0-9]+}}
++; CHECK:       $cppxdata$vectemp:
++; CHECK:       .long [[#%d,0 - VT_SUB - 8]] @ UnwindHelp
++; CHECK-NEXT:  .long 0 @ ESTypeList
++; CHECK-NEXT:  .long 1 @ EHFlags
++entry:
++  %v = load volatile <4 x i32>, ptr @vec, align 16
++  %i = load volatile i32, ptr @idx
++  %e = extractelement <4 x i32> %v, i32 %i
++  store volatile i32 %e, ptr @out
++  invoke void @g() to label %cont unwind label %cleanup
++cont:
++  ret void
++cleanup:
++  %p = cleanuppad within none []
++  call void @dtor() [ "funclet"(token %p) ]
++  cleanupret from %p unwind to caller
++}
++
++; A 32-byte aligned local: block + 24, then bits 3-4 cleared (the block is
++; already 8-byte aligned), is the first 32-byte aligned address in the block.
++define void @overaligned() personality ptr @__CxxFrameHandler3 {
++; CHECK-LABEL: overaligned:
++; CHECK:       push {r6, lr}
++; CHECK:       sub sp, #[[#OA_SUB:]]
++; CHECK:       .seh_endprologue
++; CHECK-NEXT:  mov r6, sp
++; CHECK:       add.w [[P:r[0-9]+]], r6, #{{[0-9]+}}
++; CHECK-NEXT:  adds [[P]], #24
++; CHECK:       bic [[P]], [[P]], #24
++; CHECK:       str [[P]], [r6, #[[#OA_SLOT:]]]
++; CHECK:       bl use
++; CHECK-LABEL: "?dtor$2@?0?overaligned@4HA":
++; CHECK:       .seh_endprologue
++; CHECK-NEXT:  ldr r0, [r6, #[[#OA_SLOT]]]
++; CHECK-NEXT:  bl use
++; CHECK:       $cppxdata$overaligned:
++; CHECK:       .long [[#%d,0 - OA_SUB - 8]] @ UnwindHelp
++entry:
++  %buf = alloca [8 x i32], align 32
++  call void @use(ptr %buf)
++  invoke void @g() to label %cont unwind label %cleanup
++cont:
++  call void @use(ptr %buf)
++  ret void
++cleanup:
++  %p = cleanuppad within none []
++  call void @use(ptr %buf) [ "funclet"(token %p) ]
++  cleanupret from %p unwind to caller
++}
+--- /dev/null
++++ b/llvm/test/CodeGen/ARM/wineh-cxx-eh.ll
+@@ -0,0 +1,172 @@
++; RUN: llc -O2 -mtriple=thumbv7-pc-windows-msvc < %s | FileCheck %s
++
++; C++ exception handling (__CxxFrameHandler3) on Windows ARM, checked against
++; what MSVC's ARM compiler emits and what its runtime reads:
++;  - FuncInfo has all ten words: UnwindHelp, then ESTypeList 0, EHFlags 1.
++;  - Every displacement is from SP at function entry (the establisher frame):
++;    the parent pushes PUSH bytes of registers and then subtracts SUB, so its
++;    frame base r6 is entry-SP - PUSH - SUB, and a slot at r6+K is at
++;    K - PUSH - SUB.  Each function checks its own push list.
++;  - UnwindHelp (8 bytes, 8-byte aligned as MSVC's) gets -2 in both words
++;    before the first call; in these frames it is the lowest slot, r6+0.
++;  - A catch funclet returns its continuation in r0, as one adjacent
++;    movw/movt pair (a single MOV32T relocation), and that block is
++;    address-taken.
++;  - Funclets reach the parent frame only through r6, even with a frame
++;    pointer: inside a funclet, SP and r11 are the funclet's own.
++; The calls are to external functions, so none of the EH can be proved dead.
++
++%rtti.TypeDescriptor7 = type { ptr, ptr, [8 x i8] }
++%struct.E = type { i32 }
++$"??_R0?AUE@@@8" = comdat any
++@"??_7type_info@@6B@" = external constant ptr
++@"??_R0?AUE@@@8" = linkonce_odr global %rtti.TypeDescriptor7 { ptr @"??_7type_info@@6B@", ptr null, [8 x i8] c".?AUE@@\00" }, comdat
++
++declare void @g()
++declare i32 @use(i32)
++declare void @dtor(ptr)
++declare i32 @__CxxFrameHandler3(...)
++
++; A destructor to run during unwinding and nothing to catch.
++define void @cleanup_only() personality ptr @__CxxFrameHandler3 {
++; CHECK-LABEL: cleanup_only:
++; CHECK:       .seh_handler __CxxFrameHandler3, %unwind, %except
++; CHECK:       push {r6, lr}
++; CHECK:       sub sp, #[[#CO_SUB:]]
++; CHECK:       .seh_endprologue
++; CHECK-NEXT:  mov r6, sp
++; CHECK-NEXT:  mvn [[CO_T:r[0-9]+]], #1
++; CHECK-NEXT:  str.w [[CO_T]], [r6]
++; CHECK-NEXT:  str.w [[CO_T]], [r6, #4]
++; CHECK-NEXT:  $Mtmp{{[0-9]+}}:
++; CHECK-NEXT:  bl g
++; CHECK:       $cppxdata$cleanup_only:
++; CHECK-NEXT:  .long 429065506 @ MagicNumber
++; CHECK:       .long [[#%d,0 - CO_SUB - 8]] @ UnwindHelp
++; CHECK-NEXT:  .long 0 @ ESTypeList
++; CHECK-NEXT:  .long 1 @ EHFlags
++entry:
++  %s = alloca i32, align 4
++  invoke void @g() to label %cont unwind label %cleanup
++cont:
++  call void @dtor(ptr %s)
++  ret void
++cleanup:
++  %p = cleanuppad within none []
++  call void @dtor(ptr %s) [ "funclet"(token %p) ]
++  cleanupret from %p unwind to caller
++}
++
++; catch (...) without a catch object.
++define i32 @catch_all() personality ptr @__CxxFrameHandler3 {
++; CHECK-LABEL: catch_all:
++; CHECK:       push {r6, lr}
++; CHECK:       sub sp, #[[#CA_SUB:]]
++; CHECK:       mvn [[CA_T:r[0-9]+]], #1
++; CHECK-NEXT:  str.w [[CA_T]], [r6]
++; CHECK-NEXT:  str.w [[CA_T]], [r6, #4]
++; CHECK:       [[CA_CONT:\$MBB[0-9_]+]]: @ Block address taken
++; CHECK-LABEL: "?catch$3@?0?catch_all@4HA":
++; CHECK:       .seh_handler __CxxFrameHandler3, %unwind, %except
++; CHECK:       movw r0, :lower16:[[CA_CONT]]
++; CHECK-NEXT:  movt r0, :upper16:[[CA_CONT]]
++; CHECK-NEXT:  .seh_startepilogue
++; CHECK:       bx lr
++; CHECK:       $cppxdata$catch_all:
++; CHECK:       .long [[#%d,0 - CA_SUB - 8]] @ UnwindHelp
++; CHECK-NEXT:  .long 0 @ ESTypeList
++; CHECK-NEXT:  .long 1 @ EHFlags
++; CHECK:       .long 64 @ Adjectives
++; CHECK-NEXT:  .long 0 @ Type
++; CHECK-NEXT:  .long 0 @ CatchObjOffset
++; CHECK-NEXT:  .long "?catch$3@?0?catch_all@4HA"@imgrel @ Handler
++; CHECK-NEXT:  .long 0 @ ParentFrameOffset
++entry:
++  invoke void @g() to label %done unwind label %dispatch
++dispatch:
++  %cs = catchswitch within none [label %catch] unwind to caller
++catch:
++  %cp = catchpad within %cs [ptr null, i32 64, ptr null]
++  catchret from %cp to label %done
++done:
++  %r = phi i32 [ 1, %catch ], [ 0, %entry ]
++  ret i32 %r
++}
++
++; catch (E e) by value: the runtime copies the exception into the catch
++; object at establisher frame + CatchObjOffset; the funclet must read it there.
++; The funclet keeps use()'s result in a callee-saved register across the
++; destructor call, which gives the scheduler an instruction it could place
++; between movw and movt -- the pair must stay adjacent anyway.
++define i32 @catch_obj() personality ptr @__CxxFrameHandler3 {
++; CHECK-LABEL: catch_obj:
++; CHECK:       push.w {r4, r6, r11, lr}
++; CHECK-NEXT:  .seh_save_regs_w {r4, r6, r11, lr}
++; CHECK-NEXT:  sub sp, #[[#CB_SUB:]]
++; CHECK:       .seh_endprologue
++; CHECK-NEXT:  mov r6, sp
++; CHECK-NEXT:  mvn [[CB_T:r[0-9]+]], #1
++; CHECK-NEXT:  str.w [[CB_T]], [r6]
++; CHECK-NEXT:  str.w [[CB_T]], [r6, #4]
++; CHECK:       [[CB_CONT:\$MBB[0-9_]+]]: @ Block address taken
++; CHECK-LABEL: "?catch$3@?0?catch_obj@4HA":
++; CHECK:       ldr r0, [r6, #[[#CB_OBJ:]]]
++; CHECK:       bl use
++; CHECK:       bl dtor
++; CHECK:       movw r0, :lower16:[[CB_CONT]]
++; CHECK-NEXT:  movt r0, :upper16:[[CB_CONT]]
++; CHECK:       $cppxdata$catch_obj:
++; CHECK:       .long [[#%d,0 - CB_SUB - 16]] @ UnwindHelp
++; CHECK:       .long "??_R0?AUE@@@8"@imgrel @ Type
++; CHECK-NEXT:  .long [[#%d,CB_OBJ - CB_SUB - 16]] @ CatchObjOffset
++entry:
++  %e = alloca %struct.E, align 4
++  invoke void @g() to label %done unwind label %dispatch
++dispatch:
++  %cs = catchswitch within none [label %catch] unwind to caller
++catch:
++  %cp = catchpad within %cs [ptr @"??_R0?AUE@@@8", i32 0, ptr %e]
++  %v = load i32, ptr %e, align 4
++  %u = invoke i32 @use(i32 %v) [ "funclet"(token %cp) ]
++          to label %catch.cont unwind label %catch.cleanup
++catch.cont:
++  call void @dtor(ptr %e) [ "funclet"(token %cp) ]
++  catchret from %cp to label %done
++catch.cleanup:
++  %cl = cleanuppad within %cp []
++  call void @dtor(ptr %e) [ "funclet"(token %cl) ]
++  cleanupret from %cl unwind to caller
++done:
++  %r = phi i32 [ %u, %catch.cont ], [ 0, %entry ]
++  ret i32 %r
++}
++
++; A parent local read and written in the catch, with a frame pointer: the
++; funclet sets up its own r11, so the local must be reached through r6.
++define i32 @catch_parent_local(i32 %x) "frame-pointer"="all" personality ptr @__CxxFrameHandler3 {
++; CHECK-LABEL: catch_parent_local:
++; CHECK:       str r0, [r6, #[[#PL:]]]
++; CHECK-LABEL: "?catch$2@?0?catch_parent_local@4HA":
++; CHECK:       .seh_endprologue
++; CHECK-NOT:   {{\[(sp|r11)}}
++; CHECK:       ldr r0, [r6, #[[#PL]]]
++; CHECK-NOT:   {{\[(sp|r11)}}
++; CHECK:       str r0, [r6, #[[#PL]]]
++; CHECK-NOT:   {{\[(sp|r11)}}
++; CHECK:       movw r0
++entry:
++  %local = alloca i32, align 4
++  store volatile i32 %x, ptr %local, align 4
++  invoke void @g() to label %done unwind label %dispatch
++dispatch:
++  %cs = catchswitch within none [label %catch] unwind to caller
++catch:
++  %cp = catchpad within %cs [ptr null, i32 64, ptr null]
++  %v = load volatile i32, ptr %local, align 4
++  %w = add i32 %v, 1
++  store volatile i32 %w, ptr %local, align 4
++  catchret from %cp to label %done
++done:
++  %r = load volatile i32, ptr %local, align 4
++  ret i32 %r
++}
+--- a/llvm/test/CodeGen/ARM/wineh-dtor.ll
++++ b/llvm/test/CodeGen/ARM/wineh-dtor.ll
+@@ -13,21 +13,44 @@
+ ;     a();
+ ; }
+ 
+-; Check that the changes in PR #184953 forcing r6 indexing in SEH funclets does not affect C++ EH.
++; A C++ cleanup in a frame with an alignas(64) local. The C++ EH tables give
++; each slot as a constant offset from SP at function entry, which a
++; dynamically realigned frame does not have, so -- as MSVC does -- the frame is
++; not realigned: the local gets a 64-byte aligned address inside an over-sized
++; block that is only 8-byte aligned (block + 56, bits 3-5 cleared). A
++; realigning prologue would sit between .seh_endprologue and mov r6, sp. The
++; cleanup funclet reaches the byval argument (its first 16 bytes stored below
++; the entry SP from r0-r3) and the local's address through r6.
++; CHECK-LABEL: f:
++; CHECK:       .seh_handler __CxxFrameHandler3, %unwind, %except
++; CHECK:       sub sp, #[[#ARGS:]]
++; CHECK:       push {r6, lr}
++; CHECK:       sub sp, #[[#SUB:]]
++; CHECK:       .seh_endprologue
++; CHECK-NEXT:  mov r6, sp
++; CHECK:       mvn [[T:r[0-9]+]], #1
++; CHECK:       str.w [[T]], [r6]
++; CHECK-NEXT:  str.w [[T]], [r6, #4]
++; CHECK:       add.w [[P:r[0-9]+]], r6, #{{[0-9]+}}
++; CHECK-NEXT:  adds [[P]], #56
++; CHECK-NEXT:  bic [[P]], [[P]], #56
++; CHECK:       str [[P]], [r6, #[[#SLOT:]]]
++; CHECK:       blx
++; CHECK-LABEL: "?dtor$2@?0?f@4HA":
++; CHECK:       .seh_endprologue
++; CHECK-NEXT:  add.w r0, r6, #[[#SUB + 8]]
++; CHECK-NEXT:  ldr r1, [r6, #[[#SLOT]]]
++; CHECK-NEXT:  adds r0, #44
++; CHECK-NEXT:  bl g
++; CHECK:       $cppxdata$f:
++; CHECK:       .long [[#%d,0 - SUB - 8 - ARGS]] @ UnwindHelp
++; CHECK-NEXT:  .long 0 @ ESTypeList
++; CHECK-NEXT:  .long 1 @ EHFlags
+ 
+ %struct.X = type { [100 x i32] }
+ 
+ define dso_local arm_aapcs_vfpcc void @f(ptr noundef byval(%struct.X) align 4 %0, ptr noundef %1) personality ptr @__CxxFrameHandler3 {
+ entry:
+-; CHECK-LABEL: f:
+-; CHECK: .seh_proc f
+-; CHECK: .seh_handler __CxxFrameHandler3, %unwind, %except
+-; CHECK: push.w {r11, lr}
+-; CHECK: mov r11, sp
+-; CHECK: .seh_save_sp r11
+-; CHECK: .seh_endprologue
+-; CHECK: bfc [[REG1:r[0-9]+]], #0, #6
+-; CHECK: mov sp, [[REG1]]
+ 
+   %aligned = alloca i32, align 64
+   invoke arm_aapcs_vfpcc void %1()
+@@ -40,16 +63,6 @@
+ 
+ ehcleanup:                                        ; preds = %entry
+   %cp = cleanuppad within none []
+-; CHECK: .seh_proc {{.*}}dtor{{.*}}
+-; CHECK: push.w {r11, lr}
+-; CHECK: mov r11, sp
+-; CHECK: .seh_save_sp r11
+-; CHECK: .seh_endprologue
+-; CHECK: bfc [[REG2:r[0-9]+]], #0, #6
+-; CHECK: mov sp, [[REG2]]
+-; CHECK: add.w r0, r11, #{{[0-9]+}}
+-; CHECK: adds r0, #44
+-; CHECK: bl g
+ 
+   %gep.unwind = getelementptr inbounds i8, ptr %0, i32 44
+   call arm_aapcs_vfpcc void @g(ptr noundef nonnull %gep.unwind, ptr noundef nonnull %aligned) [ "funclet"(token %cp) ]
+--- a/llvm/test/CodeGen/ARM/wineh-try-catch-stack-args.ll
++++ b/llvm/test/CodeGen/ARM/wineh-try-catch-stack-args.ll
+@@ -1,11 +1,37 @@
+-; RUN: llc -mtriple thumbv7-windows-msvc -o - %s
+-; XFAIL: *
++; RUN: llc -mtriple thumbv7-windows-msvc -o - %s | FileCheck %s
++; RUN: llc -mtriple thumbv7-windows-msvc -frame-pointer=all -o - %s | FileCheck %s --check-prefix=FP
+ 
+-; FIXME: C++ EH is not supported on thumbv7-windows-msvc yet.
+-
+-; FIXME: Windows SEH for armv7 does not preserve the frame register R11 in
+-; handlers. This may affect C++ EH when accessing arguments on the stack in
+-; functions with stack realignment.
++; Windows SEH for armv7 does not preserve the frame register R11 in handlers,
++; so a catch funclet reaches the parent's stack arguments through r6, the
++; parent's frame base: x at entry SP - 16 (r0-r3 carry its first 16 bytes and
++; the prologue stores them there), g at entry SP + 388 (after x's other 384
++; bytes and a). The alignas(64) local is dead before code generation.
++; The second RUN line adds a frame pointer, so the funclet has an r11 of its
++; own that it must not use to reach the parent's arguments.
++; FP-LABEL: "?catch$2@?0??f@@YAXUX@@P6AXXZP6AXPAH@Z@Z@4HA":
++; FP:       sub sp, #[[#FARGS:]]
++; FP:       push.w {r6, r7, r11, lr}
++; FP:       sub sp, #[[#FSUB:]]
++; FP:       .seh_endprologue
++; FP-NEXT:  add.w r0, r6, #[[#FSUB + 16]]
++; FP-NEXT:  ldr.w r1, [r6, #[[#FSUB + 16 + FARGS + 388]]]
++; FP-NEXT:  adds r0, #44
++; FP-NEXT:  blx r1
++; CHECK-LABEL: "?f@@YAXUX@@P6AXXZP6AXPAH@Z@Z":
++; CHECK:       sub sp, #[[#ARGS:]]
++; CHECK:       push {r6, lr}
++; CHECK:       sub sp, #[[#SUB:]]
++; CHECK:       .seh_endprologue
++; CHECK-NEXT:  mov r6, sp
++; CHECK:       ldr.w r12, [r6, #[[#SUB + 8 + ARGS + 384]]]
++; CHECK:       blx r12
++; CHECK-LABEL: "?catch$2@?0??f@@YAXUX@@P6AXXZP6AXPAH@Z@Z@4HA":
++; CHECK:       .seh_endprologue
++; CHECK-NEXT:  add.w r0, r6, #[[#SUB + 8]]
++; CHECK-NEXT:  ldr.w r1, [r6, #[[#SUB + 8 + ARGS + 388]]]
++; CHECK-NEXT:  adds r0, #44
++; CHECK-NEXT:  blx r1
++; CHECK:       .long [[#%d,0 - SUB - 8 - ARGS]] @ UnwindHelp
+ 
+ ; C++ source:
+ ; struct X { int x[100]; };
+--- /dev/null
++++ b/llvm/test/DebugInfo/COFF/ARMNT/codeview-d-pair-register.mir
+@@ -0,0 +1,141 @@
++# Check that a variable living in an ARM D-register pair does not abort CodeView
++# emission.  D-register pairs such as D1_D2 are RegisterTuples: the odd-even
++# pairs deliberately have no Q register covering them (see TuplesOE2D in
++# ARMRegisterInfo.td), and the CodeView format has no register number for a
++# D-pair at all -- it encodes only S0-S31, D0-D31 and Q0-Q15.  There is
++# therefore no correct value to emit for such a register, so the variable's
++# location is dropped and the variable reports as optimized out.  Emitting a
++# wrong register, or one half of the pair, would be worse than emitting nothing.
++#
++# Before this was handled, getCodeViewRegNum() reached a report_fatal_error and
++# the whole object file was lost: "error in backend: unknown codeview register
++# D1_D2".  See https://github.com/llvm/llvm-project/issues/64278.
++#
++# The two variables here differ in exactly one respect -- whether their register
++# is representable in CodeView -- so 'qreg' doubles as the control: it must keep
++# a real def range, proving the fallible lookup did not disturb mappable
++# registers.
++#
++# RUN: llc %s -mtriple=thumbv7-unknown-windows-msvc -filetype=obj -o %t --start-after=unpack-mi-bundles
++# RUN: llvm-readobj --codeview %t | FileCheck %s --check-prefix=KEPT
++# RUN: llvm-readobj --codeview %t | FileCheck %s --check-prefix=DROPPED
++# RUN: llvm-readobj --codeview %t | FileCheck %s --check-prefix=NOPAIR
++#
++# A Q register is mappable, so this variable keeps its location:
++#      KEPT:   VarName: qreg
++# KEPT-NEXT: }
++# KEPT-NEXT: DefRangeRegisterSym {
++# KEPT-NEXT:   Kind: S_DEFRANGE_REGISTER (0x1141)
++# KEPT-NEXT:   Register: ARM_NQ1 (0x191)
++#
++# The D-pair variable survives with its name and type, but no location:
++#      DROPPED:   Flags [ (0x100)
++# DROPPED-NEXT:     IsOptimizedOut (0x100)
++# DROPPED-NEXT:   ]
++# DROPPED-NEXT:   VarName: dpair
++#
++# Nothing may name the tuple, nor silently substitute one half of it -- that
++# would put the debugger's idea of the variable in the wrong place, which is
++# worse than having no location at all.  No other variable here uses D1 or D2,
++# so neither name can appear for any legitimate reason.
++# NOPAIR-NOT: D1_D2
++# NOPAIR-NOT: ARM_ND1 (
++# NOPAIR-NOT: ARM_ND2 (
++--- |
++  ; ModuleID = 'test.c'
++  source_filename = "test.c"
++  target datalayout = "e-m:w-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64"
++  target triple = "thumbv7-unknown-windows-msvc19.33.0"
++
++  ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) uwtable
++  define dso_local arm_aapcs_vfpcc void @f(ptr nocapture noundef readonly %0, ptr noundef %1) local_unnamed_addr #0 !dbg !25 {
++    %3 = getelementptr inbounds i16, ptr %0, i32 8, !dbg !41
++    %4 = load <8 x i16>, ptr %3, align 2, !dbg !41
++    %5 = shufflevector <8 x i16> %4, <8 x i16> poison, <4 x i32> <i32 4, i32 5, i32 6, i32 7>, !dbg !43
++    %6 = load <8 x i16>, ptr %0, align 2, !dbg !44
++    %7 = shufflevector <8 x i16> %6, <8 x i16> poison, <4 x i32> <i32 4, i32 5, i32 6, i32 7>, !dbg !43
++    %8 = shufflevector <4 x i16> %7, <4 x i16> %5, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7>, !dbg !43
++    tail call void @llvm.arm.neon.vst1.p0.v8i16(ptr %1, <8 x i16> %8, i32 2), !dbg !43
++    ret void, !dbg !47
++  }
++
++  ; Function Attrs: mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: readwrite)
++  declare void @llvm.arm.neon.vst1.p0.v8i16(ptr, <8 x i16>, i32) #1
++
++  ; Function Attrs: mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none)
++  declare void @llvm.dbg.value(metadata, metadata, metadata) #2
++
++  attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(argmem: readwrite) uwtable "frame-pointer"="all" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="cortex-a9" "target-features"="+armv7-a,+d32,+dsp,+fp16,+fp64,+neon,+thumb-mode,+vfp2,+vfp2sp,+vfp3,+vfp3d16,+vfp3d16sp,+vfp3sp,-aes,-fp-armv8,-fp-armv8d16,-fp-armv8d16sp,-fp-armv8sp,-fp16fml,-fullfp16,-sha2,-vfp4,-vfp4d16,-vfp4d16sp,-vfp4sp" }
++  attributes #1 = { mustprogress nocallback nofree nosync nounwind willreturn memory(argmem: readwrite) }
++  attributes #2 = { mustprogress nocallback nofree nosync nounwind speculatable willreturn memory(none) }
++
++  !llvm.dbg.cu = !{!0}
++  !llvm.module.flags = !{!17, !18, !19, !20, !21, !22, !23}
++
++  !0 = distinct !DICompileUnit(language: DW_LANG_C11, file: !1, producer: "clang", isOptimized: true, runtimeVersion: 0, emissionKind: FullDebug, retainedTypes: !2, splitDebugInlining: false, nameTableKind: None)
++  !1 = !DIFile(filename: "test.c", directory: ".")
++  !2 = !{!3, !11}
++  !3 = !DIDerivedType(tag: DW_TAG_typedef, name: "int16x8_t", file: !4, line: 26, baseType: !5)
++  !4 = !DIFile(filename: "arm_vector_types.h", directory: ".")
++  !5 = !DICompositeType(tag: DW_TAG_array_type, baseType: !6, size: 128, flags: DIFlagVector, elements: !9)
++  !6 = !DIDerivedType(tag: DW_TAG_typedef, name: "int16_t", file: !7, line: 19, baseType: !8)
++  !7 = !DIFile(filename: "stdint.h", directory: ".")
++  !8 = !DIBasicType(name: "short", size: 16, encoding: DW_ATE_signed)
++  !9 = !{!10}
++  !10 = !DISubrange(count: 8)
++  !11 = !DIDerivedType(tag: DW_TAG_typedef, name: "int8x16_t", file: !4, line: 24, baseType: !12)
++  !12 = !DICompositeType(tag: DW_TAG_array_type, baseType: !13, size: 128, flags: DIFlagVector, elements: !15)
++  !13 = !DIDerivedType(tag: DW_TAG_typedef, name: "int8_t", file: !7, line: 18, baseType: !14)
++  !14 = !DIBasicType(name: "signed char", size: 8, encoding: DW_ATE_signed_char)
++  !15 = !{!16}
++  !16 = !DISubrange(count: 16)
++  !17 = !{i32 2, !"CodeView", i32 1}
++  !18 = !{i32 2, !"Debug Info Version", i32 3}
++  !19 = !{i32 1, !"wchar_size", i32 2}
++  !20 = !{i32 1, !"min_enum_size", i32 4}
++  !21 = !{i32 7, !"uwtable", i32 2}
++  !22 = !{i32 7, !"frame-pointer", i32 2}
++  !23 = !{i32 7, !"debug-info-assignment-tracking", i1 true}
++  !25 = distinct !DISubprogram(name: "f", scope: !1, file: !1, line: 2, type: !26, scopeLine: 2, flags: DIFlagPrototyped, spFlags: DISPFlagDefinition | DISPFlagOptimized, unit: !0, retainedNodes: !31)
++  !26 = !DISubroutineType(types: !27)
++  !27 = !{null, !28, !30}
++  !28 = !DIDerivedType(tag: DW_TAG_pointer_type, baseType: !29, size: 32)
++  !29 = !DIDerivedType(tag: DW_TAG_const_type, baseType: !8)
++  !30 = !DIDerivedType(tag: DW_TAG_pointer_type, baseType: !8, size: 32)
++  !31 = !{!34, !38}
++  !34 = !DILocalVariable(name: "qreg", scope: !35, file: !1, line: 3, type: !3)
++  !35 = distinct !DILexicalBlock(scope: !25, file: !1, line: 3)
++  !38 = !DILocalVariable(name: "dpair", scope: !39, file: !1, line: 3, type: !3)
++  !39 = distinct !DILexicalBlock(scope: !35, file: !1, line: 3)
++  !41 = !DILocation(line: 3, scope: !39)
++  !43 = !DILocation(line: 3, scope: !35)
++  !44 = !DILocation(line: 3, scope: !39)
++  !45 = !DILocation(line: 0, scope: !39)
++  !46 = !DILocation(line: 0, scope: !35)
++  !47 = !DILocation(line: 5, scope: !25)
++...
++---
++name:            f
++alignment:       2
++tracksRegLiveness: true
++tracksDebugUserValues: true
++registers:       []
++liveins:
++  - { reg: '$r0', virtual-reg: '' }
++  - { reg: '$r1', virtual-reg: '' }
++frameInfo:
++  maxAlignment:    1
++machineFunctionInfo:
++  isLRSpilled:     false
++body:             |
++  bb.0 (%ir-block.2):
++    liveins: $r0, $r1
++
++    $d1_d2, $r0 = VLD1q16wb_fixed killed renamable $r0, 0, 14 /* CC::al */, $noreg, implicit-def $d1_d2_d3, debug-location !44 :: (load (s128) from %ir.0, align 2)
++    DBG_VALUE $d1_d2, $noreg, !38, !DIExpression(), debug-location !45
++    renamable $r0, dead $cpsr = tADDi8 killed renamable $r0, 8, 14 /* CC::al */, $noreg
++    $d3 = VLD1d16 killed renamable $r0, 0, 14 /* CC::al */, $noreg, implicit killed $d1_d2_d3, implicit-def $d1_d2_d3, debug-location !43 :: (load (s64) from %ir.3 + 8, align 2)
++    DBG_VALUE $q1, $noreg, !34, !DIExpression(), debug-location !46
++    VST1q16 killed $r1, 0, $q1, 14 /* CC::al */, $noreg, implicit killed $d1_d2_d3, debug-location !43 :: (store (s128) into %ir.1, align 2)
++    tBX_RET 14 /* CC::al */, $noreg, debug-location !47
++...

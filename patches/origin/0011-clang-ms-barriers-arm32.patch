@@ -1,0 +1,141 @@
+0011  clang: the Microsoft compiler barriers on 32-bit Arm (Windows)
+
+_ReadWriteBarrier, _ReadBarrier and _WriteBarrier were not builtins on ARM32. <intrin.h> declares
+all three for every architecture, so a call compiled silently to an EXTERNAL call and failed at
+link with an undefined symbol, and `#pragma intrinsic(_ReadWriteBarrier)` warned
+-Wignored-pragma-intrinsic, which is an error under -Werror. MSVC's ARM compiler inlines all three,
+and clang already does on x86 and AArch64. Chromium's sqlite hits it.
+
+Declared in BuiltinsARM.def exactly as AArch64 declares _ReadWriteBarrier (MS languages, intrin.h,
+nothrow, requires declaration), and lowered in EmitARMBuiltinExpr to the same single-thread
+sequentially-consistent fence x86 and AArch64 emit: a compiler barrier, no instruction.
+
+Tests: ms-barriers-intrinsics.c, the barriers' own test, gains a thumbv7 RUN line (through
+<intrin.h>, as sqlite uses them); arm-microsoft-intrinsics.c checks the no-header call path and
+the non-MS negative; Preprocessor/pragma_microsoft_arm.c checks #pragma intrinsic is silent.
+
+Against rt2-src (== llvmorg-23.1.1 + rt2-vs-23.1.1.patch). Generated, not written by hand.
+
+diff --git a/clang/include/clang/Basic/BuiltinsARM.def b/clang/include/clang/Basic/BuiltinsARM.def
+--- a/clang/include/clang/Basic/BuiltinsARM.def
++++ b/clang/include/clang/Basic/BuiltinsARM.def
+@@ -223,6 +223,10 @@
+ LANGBUILTIN(_MoveToCoprocessor, "vUiIUiIUiIUiIUiIUi", "", ALL_MS_LANGUAGES)
+ LANGBUILTIN(_MoveToCoprocessor2, "vUiIUiIUiIUiIUiIUi", "", ALL_MS_LANGUAGES)
+ 
++TARGET_HEADER_BUILTIN(_ReadBarrier,      "v", "nh", INTRIN_H, ALL_MS_LANGUAGES, "")
++TARGET_HEADER_BUILTIN(_ReadWriteBarrier, "v", "nh", INTRIN_H, ALL_MS_LANGUAGES, "")
++TARGET_HEADER_BUILTIN(_WriteBarrier,     "v", "nh", INTRIN_H, ALL_MS_LANGUAGES, "")
++
+ TARGET_HEADER_BUILTIN(_BitScanForward, "UcUNi*UNi", "nh", INTRIN_H, ALL_MS_LANGUAGES, "")
+ TARGET_HEADER_BUILTIN(_BitScanReverse, "UcUNi*UNi", "nh", INTRIN_H, ALL_MS_LANGUAGES, "")
+ TARGET_HEADER_BUILTIN(_BitScanForward64, "UcUNi*ULLi", "nh", INTRIN_H, ALL_MS_LANGUAGES, "")
+diff --git a/clang/lib/CodeGen/TargetBuiltins/ARM.cpp b/clang/lib/CodeGen/TargetBuiltins/ARM.cpp
+--- a/clang/lib/CodeGen/TargetBuiltins/ARM.cpp
++++ b/clang/lib/CodeGen/TargetBuiltins/ARM.cpp
+@@ -2125,6 +2125,12 @@
+     return Builder.CreateCall(Emit);
+   }
+ 
++  if (BuiltinID == clang::ARM::BI_ReadBarrier ||
++      BuiltinID == clang::ARM::BI_ReadWriteBarrier ||
++      BuiltinID == clang::ARM::BI_WriteBarrier)
++    return Builder.CreateFence(llvm::AtomicOrdering::SequentiallyConsistent,
++                               llvm::SyncScope::SingleThread);
++
+   if (BuiltinID == clang::ARM::BI__builtin_arm_dbg) {
+     Value *Option = EmitScalarExpr(E->getArg(0));
+     return Builder.CreateCall(CGM.getIntrinsic(Intrinsic::arm_dbg), Option);
+diff --git a/clang/test/CodeGen/arm-microsoft-intrinsics.c b/clang/test/CodeGen/arm-microsoft-intrinsics.c
+--- a/clang/test/CodeGen/arm-microsoft-intrinsics.c
++++ b/clang/test/CodeGen/arm-microsoft-intrinsics.c
+@@ -1,4 +1,4 @@
+-// RUN: %clang_cc1 -triple thumbv7-windows -fms-compatibility -emit-llvm -o - %s \
++// RUN: %clang_cc1 -triple thumbv7-windows -Wno-implicit-function-declaration -fms-compatibility -emit-llvm -o - %s \
+ // RUN:    | FileCheck %s -check-prefix CHECK-MSVC
+ 
+ // RUN: not %clang_cc1 -triple armv7-eabi -Werror -S -o /dev/null %s 2>&1 \
+@@ -40,3 +40,32 @@
+ // CHECK-MSVC: @llvm.arm.mcr2(i32 10, i32 7, i32 %{{[^,]*}}, i32 1, i32 0, i32 0)
+ // CHECK-EABI: error: call to undeclared function '_MoveToCoprocessor2'
+ 
++void check_ReadBarrier(void) {
++  _ReadBarrier();
++}
++
++// CHECK-MSVC-LABEL: @check_ReadBarrier(
++// CHECK-MSVC-NOT: call
++// CHECK-MSVC: fence syncscope("singlethread") seq_cst
++// CHECK-MSVC-NEXT: ret void
++// CHECK-EABI: error: call to undeclared function '_ReadBarrier'
++
++void check_ReadWriteBarrier(void) {
++  _ReadWriteBarrier();
++}
++
++// CHECK-MSVC-LABEL: @check_ReadWriteBarrier(
++// CHECK-MSVC-NOT: call
++// CHECK-MSVC: fence syncscope("singlethread") seq_cst
++// CHECK-MSVC-NEXT: ret void
++// CHECK-EABI: error: call to undeclared function '_ReadWriteBarrier'
++
++void check_WriteBarrier(void) {
++  _WriteBarrier();
++}
++
++// CHECK-MSVC-LABEL: @check_WriteBarrier(
++// CHECK-MSVC-NOT: call
++// CHECK-MSVC: fence syncscope("singlethread") seq_cst
++// CHECK-MSVC-NEXT: ret void
++// CHECK-EABI: error: call to undeclared function '_WriteBarrier'
+diff --git a/clang/test/CodeGen/ms-barriers-intrinsics.c b/clang/test/CodeGen/ms-barriers-intrinsics.c
+--- a/clang/test/CodeGen/ms-barriers-intrinsics.c
++++ b/clang/test/CodeGen/ms-barriers-intrinsics.c
+@@ -4,6 +4,9 @@
+ // RUN: %clang_cc1 -ffreestanding -fms-extensions -fms-compatibility -fms-compatibility-version=17.00 \
+ // RUN:         -triple x86_64--windows -emit-llvm %s -o - \
+ // RUN:         | FileCheck %s --check-prefix=CHECK --check-prefix=CHECK-X64
++// RUN: %clang_cc1 -ffreestanding -fms-extensions -fms-compatibility -fms-compatibility-version=17.00 \
++// RUN:         -triple thumbv7--windows -emit-llvm %s -o - \
++// RUN:         | FileCheck %s
+ 
+ // intrin.h needs size_t, but -ffreestanding prevents us from getting it from
+ // stddef.h.  Work around it with this typedef.
+@@ -12,19 +15,19 @@
+ #include <intrin.h>
+ 
+ void test_ReadWriteBarrier(void) { _ReadWriteBarrier(); }
+-// CHECK-LABEL: define dso_local void @test_ReadWriteBarrier
++// CHECK-LABEL: define dso_local {{.*}}void @test_ReadWriteBarrier
+ // CHECK:   fence syncscope("singlethread") seq_cst
+ // CHECK:   ret void
+ // CHECK: }
+ 
+ void test_ReadBarrier(void) { _ReadBarrier(); }
+-// CHECK-LABEL: define dso_local void @test_ReadBarrier
++// CHECK-LABEL: define dso_local {{.*}}void @test_ReadBarrier
+ // CHECK:   fence syncscope("singlethread") seq_cst
+ // CHECK:   ret void
+ // CHECK: }
+ 
+ void test_WriteBarrier(void) { _WriteBarrier(); }
+-// CHECK-LABEL: define dso_local void @test_WriteBarrier
++// CHECK-LABEL: define dso_local {{.*}}void @test_WriteBarrier
+ // CHECK:   fence syncscope("singlethread") seq_cst
+ // CHECK:   ret void
+ // CHECK: }
+diff --git a/clang/test/Preprocessor/pragma_microsoft_arm.c b/clang/test/Preprocessor/pragma_microsoft_arm.c
+--- /dev/null
++++ b/clang/test/Preprocessor/pragma_microsoft_arm.c
+@@ -0,0 +1,11 @@
++// RUN: %clang_cc1 -triple thumbv7-windows-msvc %s -fsyntax-only -verify -fms-extensions
++
++// The Microsoft compiler barriers are builtins on 32-bit Arm, as they are on
++// x86 and AArch64, so '#pragma intrinsic' must accept them without a
++// -Wignored-pragma-intrinsic warning.
++
++// expected-no-diagnostics
++
++#pragma intrinsic(_ReadBarrier)
++#pragma intrinsic(_ReadWriteBarrier)
++#pragma intrinsic(_WriteBarrier)

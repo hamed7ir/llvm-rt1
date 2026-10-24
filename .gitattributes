@@ -1,0 +1,4 @@
+# Patches must keep their exact bytes. Some rt2.1 hunks contain CR characters (an LLVM file that
+# uses CRLF line endings), and git's line-ending conversion would strip them. That breaks the patch,
+# and the sha256 of patches/rt21-vs-23.1.1.patch would no longer match the revision clang prints.
+*.patch -text

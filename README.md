@@ -1,192 +1,214 @@
-# rt2 — a clang-cl / lld toolchain for ARM32 Windows (LLVM 23.1.1)
+# rt2.1: clang-cl and lld for ARM32 Windows (LLVM 23.1.1)
 
-rt2 is a **complete, self-contained toolchain** for compiling C and C++ for **ARM32 Windows**
-(`thumbv7`) with `clang-cl` and `lld-link`. It is **LLVM 23.1.1 plus six patches** that upstream
-still needs for this target. **If you do not target ARM32 Windows, you do not need it.**
+rt2.1 is LLVM 23.1.1 with 16 patches. I made it because stock LLVM still breaks on ARM32 Windows
+(`thumbv7`) in a few places. It is a full toolchain: `clang-cl`, `lld-link`, the LLVM tools, clang's
+headers and the compiler-rt libraries, all in one folder. If you don't build for ARM32 Windows, you
+don't need it.
 
-> ### Looking for rt1, rt1.1 or rt1.2 (the LLVM 18.1.8 line)?
-> **They live on the [`rt1`](../../tree/rt1) branch.** This repository's `main` always points at the
-> newest toolchain; older lines are preserved on their own branches and their releases stay exactly
-> as cut. If you are on rt1.x today and it works, **you do not have to move** — read
-> *Should you move to rt2?* below before you do.
+> **Looking for an older one?** rt2 is still on its release page (tag `rt2-23.1.1`). The LLVM 18.1.8
+> line (rt1, rt1.1, rt1.2) lives on the [`rt1`](../../tree/rt1) branch. `main` always has the newest
+> toolchain, and old releases never change.
 
-Base is `llvmorg-23.1.1`. The source tarball's published sha256 was verified before the build:
-`ebe9be46fe8756d58c5b198ffad0fa2a766257add81a4dc52179bfacc7888ee6`.
+## Downloads
 
----
+Everything is on the release page for tag `rt2.1-23.1.1`. There are three archives. Most people only
+need the first one.
 
-## Six patches, not ten — and the four that went away
+| archive | what it is |
+|---|---|
+| `rt2.1-23.1.1-rt2.1-arm32-win.tar.gz` | **The toolchain.** clang-cl, lld-link, llvm tools, headers, compiler-rt. Start here. |
+| `rt2.1-23.1.1-rt2.1-dev-win64.tar.gz` | LLVM's libraries, headers, CMake files and `llvm-config`. Only if you build something against rt2.1's LLVM, like rustc. |
+| `rustc-rt2.1-1.100.0-nightly-win64.tar.gz` | rustc built on rt2.1's LLVM, with the standard library for `thumbv7a`, `i686` and `x86_64` Windows. |
+| `SHA256SUMS` | sha256 of the three archives. |
 
-rt1 needed ten patches to make clang 18 usable on ARM32 Windows. On LLVM 23, **four of them are no
-longer necessary**, because upstream fixed them:
-
-| rt1 patch | on LLVM 23 | in rt2 |
-|---|---|---|
-| **0002** lld writes a local `__imp_` pointer with bit 0 clear | still broken | **carried** |
-| **0003** forwarded `musttail` registers not modelled live | still broken | **carried** |
-| **0004** CodeView aborts on a tuple-register `DBG_VALUE` | still broken | **carried** |
-| **0005** tests for the `this`-adjusting thunk cases in 0003 | — | **carried** |
-| **0007** `musttail` vararg forwarder that calls `va_start` aborts | still broken | **carried** |
-| **0010** `setjmp` gets the frame pointer, not the entry stack pointer | still broken | **carried** |
-| 0001 prologue over-allocates the frame under a split R11/LR push | **fixed upstream** | dropped |
-| 0006 `-Wpadded` dead under the MS record layout builder | **fixed upstream** | dropped |
-| 0008 crash under `-fdump-record-layouts-complete` | **fixed upstream** | dropped |
-| 0009 Windows SEH unsupported on ARM32 | **fixed upstream** | dropped |
-| D37 `musttail` to an `sret` function refused | **fixed upstream** | rt1.x never could fix it |
-
-Every "fixed upstream" above was **measured**, not read off a changelog: each row was run against a
-compiler known to have the defect and one known not to, and a row where neither arm fired was
-recorded as unmeasured rather than as a pass — **11 of 11 rows measured**. The full table lives in
-this project's private working repository; it is not in this repository, and `RELEASE-NOTES.md`
-carries its published summary.
-
-Two of those are worth naming. **0009 was the largest patch in the rt1 series** at 75,868 bytes, and
-it is simply gone. And **D37 is the one defect rt1.x cannot fix at all** — `musttail` to a
-struct-returning function is a hard error there and compiles here.
-
-**0002 is carried only because nobody backported it.** The fix is merged on LLVM `main` as
-`bfaec6c07`; `release/23.x` branched before it, so it is in no released 23.x. A backport would cut
-rt2 to five patches and would help every ARM32 Windows consumer of 23.x, not only this one.
-
----
+All three run on 64-bit x86 Windows. They make programs for ARM32 Windows (and for x86 and x64 too).
 
 ## Install
 
-Unpack the release archive and put its `bin/` on your `PATH`, or point your build system at it.
-**rt2 overlays nothing and replaces nothing** — that is the difference from rt1.x, which is a
-nine-driver overlay onto the official LLVM 18.1.8 package.
+1. Unpack the toolchain archive anywhere.
+2. Put its `bin` folder on your `PATH`, or point your build system at it.
 
-> ⚠ **Resource headers are in `lib/clang/23/include`, not `lib/clang/18/include`.** A build system
-> carried over from rt1.x that hardcodes `18` will silently find no headers.
+It doesn't overlay anything and doesn't need a stock LLVM install. The Microsoft VC runtime DLLs the
+tools need are in `bin`. clang's own headers are in `lib/clang/23/include`. If you came from rt1.x,
+watch out: a build file that hardcodes `lib/clang/18` will find no headers here.
 
-### Verifying what you downloaded — read this one carefully
-
-**rt2 and stock upstream LLVM 23.1.1 report the same LLVM version.** The distinguishing string is
-the vendor and suffix:
-
-```
-findstr /M /C:"23.1.1-rt2" <binary>          (cmd.exe)
-grep -ac 23.1.1-rt2 <binary>                 (git-bash/WSL)
-```
-
-- the four clang drivers print `Varan clang version 23.1.1-rt2`; stock prints `clang version 23.1.1`
-- the five lld drivers print `Varan LLD 23.1.1`; stock prints `LLD 23.1.1`
-- the fifteen `llvm-*` tools and `llc` print `LLVM version 23.1.1-rt2`
-
-**And check the other half — no rt1-family commit may be present:**
+**What you also need.** rt2.1 doesn't include Microsoft's C and C++ headers and libraries or the
+Windows SDK. Your programs need those to compile and link. For ARM32 you need Visual Studio 2022
+Build Tools with the ARM build tools, and a Windows SDK that still has ARM32 libraries. SDK 10.0.19041
+has them. SDK 10.0.26100 doesn't. You can point clang-cl at them like this:
 
 ```
-grep -ac 83c117cad0a9dee89e6daf6821c49156a3c562c0 <binary>   -> 0   (rt1.2)
-grep -ac 60876c5f8fad221756afd9bbd534377b7ff06571 <binary>   -> 0   (rt1.1)
-grep -ac 7653a13d8d28189c7cef1401b934ec30d98ea353 <binary>   -> 0   (rt1 1.0)
+clang-cl --target=thumbv7-pc-windows-msvc -fuse-ld=lld -vctoolsdir "<VS>\VC\Tools\MSVC\14.44.35207" -winsdkdir "<Windows Kits>\10" -winsdkversion 10.0.19041.0 hello.c
 ```
 
-That second check is not decoration, and neither is the first. An **earlier rt2 build carried no
-distinguishing string at all** — it reported `clang version 23.1.1 (llvmorg-23.1.1)`, character for
-character what stock upstream reports. A presence-only test against the upstream tag would have
-passed on a stock binary. A token the thing you are comparing against also carries cannot tell two
-toolchains apart.
+or open a Visual Studio developer prompt, which sets `INCLUDE` and `LIB` for you.
 
-`MODIFICATIONS.txt` inside the archive carries the full recipe and the package inventory.
+For Chromium (GN), these are the toolchain lines from my args:
 
----
+```
+clang_base_path = "<where you unpacked the toolchain>"
+clang_version = "23"
+clang_use_chrome_plugins = false    # rt2.1 doesn't have Chromium's clang plugins
+```
 
-## Should you move to rt2?
+## Check you got the right build
 
-**Honestly: only if you need something in it.** rt1.2 has more validation behind it; rt2 has a newer
-compiler and fewer patches. The real differences:
+```
+clang-cl --version
+```
 
-**Reasons to take rt2**
-- Four fewer patches between you and upstream, and one of the four — SEH — was the largest and most
-  invasive thing rt1 carried.
-- **`musttail` to a struct-returning function works (D37).** rt1.x cannot do this at all — it was a
-  reverted candidate there, never one of the shipped ten, so it is a bonus rather than a fifth
-  patch removed.
-- Five releases of upstream bug fixes, optimisation and diagnostics that have nothing to do with ARM.
+should print:
 
-**Reasons to stay on rt1.2**
-- **rt2's output measured 6.69% larger** than rt1.2's across a 19-binary browser fleet — `xul.dll`
-  +6.48%, `mozavcodec.dll` +32.03%. (Stated in the direction it was measured. The reverse figure is
-  not the same number: rt1.2 is 6.27% smaller, because percentages are not symmetric.) **No
-  investigation into why has been done.**
-- rt2 is **stricter**: five releases of newly-promoted errors. A tree that builds clean on rt1.2 may
-  need `-Wno-error=...` on rt2. That is modern clang, not an rt2 defect — but it is your afternoon.
-- rt1.2 has more miles on it.
+```
+Varan clang version 23.1.1-rt2.1 (e240ad76c3a4429084c026fe0a9b0fce34025032)
+```
 
----
+The long number is the first 40 hex digits of the sha256 of `patches/rt21-vs-23.1.1.patch`, the full
+diff the toolchain was built from. So the compiler names the exact source it came from. lld prints
+`Varan LLD 23.1.1`, and most llvm tools print `LLVM version 23.1.1-rt2.1`.
 
-## What has been measured, and what has not
+Don't only trust `--version`. Open a terminal in the `bin` folder and search the file itself.
 
-**rt2 compiles and links a real browser.** The full Varan tree (Pale Moon 34.3.1 / UXP 6.9.0,
-ARM32 Windows) was built with rt2 from clean on 2026-09-15:
+In cmd.exe:
 
-- **2,537 of 2,537 translation units. 19 of 19 PEs.**
-- **Zero ICEs, zero `LLVM ERROR`, zero backend fatals** across the whole tree.
-- Every image ARMNT `0x01C4`.
-- The `__imp_` gate passed on all 19 **with the post-link fixup scaffold never run** — the
-  real-codebase evidence that patch 0002 does what that scaffold used to do by hand.
-- The browser launched on a Windows 10 ARM32 device and loaded a page.
+```
+findstr /M /C:"e240ad76c3a4429084c026fe0a9b0fce34025032" clang-cl.exe
+```
 
-**What that does not establish**, stated because it matters more than the headline:
+In git-bash:
 
-- **One device run, one page.** Not a test suite, not a browsing session. `n=1`.
-- **No `longjmp` has been executed on hardware** with an rt2-built binary. Patch 0010 fixes a defect
-  that *was* measured on a device; the **fix** has only been measured in the compiler.
-- **One open question with a sharp edge.** LLVM 23 tail-calls two call shapes that patch 0007
-  deliberately keeps as ordinary calls — including a `byval` argument split between registers and
-  the stack. **Stock 23 does this with no rt1 patch applied**, so it is upstream behaviour rt2
-  inherits, not something rt2 introduced; upstream grew a mechanism 18.x lacked that presumably
-  handles it. **Whether it is actually safe has never been executed.**
-- **No Windows RT 8.1 testing**, and no object-by-object corpus comparison.
+```
+grep -ac e240ad76c3a4429084c026fe0a9b0fce34025032 clang-cl.exe
+```
 
-`RELEASE-NOTES.md` carries the full list. It is long on purpose.
+If it finds it, it's this build. rt2 doesn't have that string (it prints
+`Varan clang version 23.1.1-rt2 (llvmorg-23.1.1)`), so this tells the two apart. The sha256 of
+`clang-cl.exe` is `d572c49356dd897ef499131d8914bf6581a8a9a62dcf928220b7db786a1dfed2` and of
+`lld-link.exe` is `6e203038eb1b3ac1015f36e3595b456623ca4592c66b998ab0b8ccf0c38afb30`.
 
----
+## What's new since rt2
 
-## What is here
+rt2 had six patches. rt2.1 keeps all six and adds ten more. I found almost all of these while porting
+a Chromium-based browser (Venetium) to ARM32 Windows.
+
+| patch | what was wrong | what you saw |
+|---|---|---|
+| 0011 | `_ReadWriteBarrier`, `_ReadBarrier` and `_WriteBarrier` were not built in on ARM32 | link error (sqlite hits it) |
+| 0012 | 26 MSVC ARM intrinsics were missing, like `_MulHigh`, `_CountLeadingZeros`, `_InterlockedAdd`, `_ReadStatusReg` and `__prefetch`. `_AddressOfReturnAddress` was missing too | compile or link errors |
+| 0013 | the `lifetime_capture_by(this)` deprecation warning was on by default | 2,331 `-Werror` errors in Chromium's abseil |
+| 0014 | `pcs("aapcs-vfp")` was rejected on Windows on Arm | `-Werror` error in Skia |
+| 0015 | lld sent branches that were in range through range thunks that clobber `r12` | **wrong code, no error.** MSVC's `__rt_sdiv` gave wrong remainders and the browser crashed on the device |
+| 0016 | ARM objects had no `@feat.00` symbol, so lld ignored their `/guard:cf` tables | under Control Flow Guard the program was killed (`0xC0000409`) on a call through a delay-loaded import |
+| 0017 | C++ exceptions were not implemented for ARM32 Windows | the compiler stopped with an error on any `catch` |
+| 0018 | lld wrote two bits of the `BRANCH20T` relocation the wrong way round | **wrong code, no error.** Some conditional branches jumped to the wrong place |
+| 0019 | a test from rt2 still expected LLVM 18 output | test only, no code change |
+| 0020 | finishes `_AddressOfReturnAddress` from 0012: my own first version used the wrong stack slot in some functions | nothing in any release. I found it before anything shipped |
+
+The six from rt2 are still here, because LLVM 23.1.1 still needs them: 0002 (lld lost the Thumb bit
+on a local `__imp_` pointer), 0003 and 0005 (registers passed through a `musttail` call), 0004
+(CodeView crash on a tuple register), 0007 (`musttail` vararg forwarder with `va_start` crashed) and
+0010 (`setjmp` got the frame pointer instead of the stack pointer). 0002 and 0010 are merged in LLVM
+main now, but not in any 23.x release. 0003 and 0004 are open pull requests there.
+
+`RELEASE-NOTES.md` has the long version of all of this.
+
+**Should you move from rt2?** Yes, I think so. 0015 and 0018 fix wrong code that lld made with no
+warning, and rt2 has both bugs. Read *Things that work differently now* first, though.
+
+## Things that work differently now
+
+- **The new intrinsics are real built-ins now.** If your code defines its own `_CountLeadingZeros`,
+  `_ReadWriteBarrier` or similar, you get an error, same as MSVC. Wrap your version in
+  `#if !__has_builtin(_CountLeadingZeros)`.
+- **C++ exceptions on ARM32 follow MSVC's rules.** A function with `try`/`catch` never gets its
+  stack realigned at runtime, like MSVC. Catching by value a type that is aligned to more than 8
+  bytes is refused with an error, instead of making code that might be wrong. (MSVC accepts it.)
+- **lld-link can embed manifests by itself now**, so you don't need `mt.exe`. `llvm-mt` and
+  `llvm-strings` are now in `bin`.
+- **libclang.dll is included.** If you load it from another program, give it `-resource-dir`
+  pointing at `lib/clang/23`, or it may not find its own headers.
+
+## How I tested it
+
+**On a real ARM32 device:** I built Venetium (a Chromium-based browser) with rt2.1, including its
+Rust code with the rustc from this release, and it runs. I also ran three more things on the device,
+and all three gave the right result:
+
+- the C++ exception test kit printed the same output as the MSVC build of it,
+- with Control Flow Guard enforced, the browser started and worked,
+- without the extra `rtdiv` library (patch 0015's case), division gave the right results.
+
+**On my laptop, before that.** Here "the earlier build" means an rt2.1 build I never released: rt2
+plus patch 0011, without 0012 to 0020. I kept it only to compare against.
+
+- 197 lit tests. rt2.1 passes all 148 that can run there (the other 49 need targets I didn't build).
+  The earlier build fails exactly the 22 tests that are new or changed. So every new test really
+  catches its bug.
+- 962 source files from two real ARM32 projects (adb and scrcpy, with BoringSSL, protobuf, SDL3 and
+  libusb inside): every object came out identical to the earlier build's. I compared code and data,
+  not debug info, and ignored the new `@feat.00` symbol. `RELEASE-NOTES.md` says exactly what was
+  left out.
+- lld: the CFG tables, the `BRANCH20T` encoding (31 cases, checked against MSVC's own `link.exe`)
+  and manifest embedding without `mt.exe`. Each check fails on the earlier build.
+- LLVM's own libc++ builds with exceptions for ARM32 and links as an ARM32 DLL.
+- compiler-rt: all four libraries rebuilt from rt2.1's own source with this compiler.
+- libclang: loaded from another program and used to parse a file.
+- Intrinsics: MSVC inlines 251 ARM intrinsics. rt2.1 inlines 207 of them now (180 before). Of the
+  other 44, 4 are not real gaps and 40 fail loudly with a compile or link error.
+
+Every patch from 0012 on was also reviewed by a separate AI review session that didn't write the
+patch and was told to try to break it. I read the reports, and the fixes they asked for were reviewed
+again the same way.
+
+## What I did not test
+
+- bindgen. libclang was tested through the same API bindgen uses, but not with bindgen itself.
+- Known limits of the C++ exception support, not fixed: an over-aligned local in a function with
+  `try`/`catch` loses its debugger location, and each funclet (every `catch` block and every cleanup
+  that runs a destructor) reserves its parent's whole stack frame again. So a function with a very
+  big frame (around 1/3 MB) can run out of a 1 MB stack while handling an exception. MSVC doesn't do
+  that.
+
+## rustc
+
+The rustc archive is rustc `1.100.0-nightly (bba531001 2026-09-20)` built on rt2.1's LLVM. It has the
+standard library for `thumbv7a-pc-windows-msvc`, `i686-pc-windows-msvc` and `x86_64-pc-windows-msvc`.
+I used it to build Venetium. Its own `README.md` says how to use it. It's a compiler and its standard
+library only: there is no cargo in it.
+
+## What is in this repository
 
 | | |
 |---|---|
-| `RELEASE-NOTES.md` | what rt2 fixes, what to expect when moving a tree to it, and — at length — what has **not** been measured |
-| `MODIFICATIONS.txt` | the Apache-2.0 §4(b) modification notice and the package inventory |
-| `patches/` | **`rt2-vs-23.1.1.patch`** — the complete diff from pristine `llvmorg-23.1.1` to rt2, generated from the two trees and verified by applying it to a fresh 23.1.1 and comparing file for file. `patches/origin/` holds the six original **18.x-targeted** rt1 patches for their defect analysis; they are **not** what rt2 was built from, and `origin/README.txt` says exactly how they differ |
-| `runtime/` | the `__aeabi` divmod shim — source plus a prebuilt `.lib`/`.obj` **rebuilt by this compiler**, and a README saying when you need it. It is opt-in, because adding it makes divide-by-zero trap |
-| `tools/`, `scratch/` | the instruments and evidence the documents cite |
-
-The `scratch/` paths look internal because they are: they are preserved exactly as the documents
-cite them, so every citation resolves to a file you can open. A verdict whose instrument you cannot
-inspect is an assertion, not evidence.
-
-`llc` is shipped in `bin/` on purpose, so you can compile the shipped tests yourself rather than
-taking our word for anything.
-
-> ⚠ **Do not expect `patches/origin/`'s lit tests to pass against rt2.** They encode LLVM 18.x
-> behaviour. 0007's in particular will fail, because LLVM 23 tail-calls two call shapes that 0007
-> keeps as ordinary calls — **with no rt1 patch applied at all.** That is upstream behaviour rt2
-> inherits, documented under *What has not been measured*, not a defect rt2 introduced.
-
----
+| `RELEASE-NOTES.md` | everything that changed, how it was tested, and what was not tested |
+| `MODIFICATIONS.txt` | the license notice for changed files, and what is in the toolchain archive |
+| `LICENSE.TXT` | LLVM's license, the same file as in the archives |
+| `patches/rt21-vs-23.1.1.patch` | the full diff from clean `llvmorg-23.1.1` to rt2.1. This is what the toolchain was built from. |
+| `patches/origin/` | every patch on its own. `origin/README.txt` says which ones apply as they are. |
+| `runtime/` | the `__aeabi` divide shim: source, and a `.lib`/`.obj` built by this compiler. Opt in only. |
+| `tools/`, `scratch/`, `upstream-check/` | tools and evidence from the earlier releases that their documents point to |
+| `DISPOSITION-TABLE.md` | the rt1 bug table, kept for history |
+| `CURATION-MANIFEST.txt` | the list of files in this repository |
 
 ## Maintenance
 
-**rt2 is a one-shot release, like rt1 before it.** No rebases, no version bumps, no maintenance
-stream. `main` will move to a newer LLVM if and when one is cut; rt2 will then be preserved on its
-own branch exactly as it is now, and its release will not change.
-
+rt2.1 is a one-shot release, like rt1 and rt2. No rebases and no version bumps. When a newer LLVM
+line comes, it takes `main`, and rt2.x moves to its own branch. This release won't change.
 
 ## AI assistance
 
-This toolchain's patches, measurements and documents were produced with substantial AI assistance,
-reviewed and directed by a human, who is responsible for what is published here. Every measurement
-quoted was executed, not predicted; where something was not measured it is listed as such rather
-than omitted.
+I made the patches, tests and documents with a lot of help from AI. I directed and reviewed the
+work, and I'm responsible for what's published here. Every test result above was really run. When
+something was not tested, I say so.
 
-## Licence, and reporting a problem
+## License, and reporting a problem
 
-Apache License v2.0 with LLVM Exceptions, as LLVM itself — the full text is `LICENSE.TXT` in the
-release archive. The eight Microsoft VC runtime DLLs in `bin/` are Microsoft redistributables, are
-not modified, and are not covered by that licence — see `MODIFICATIONS.txt`.
+The toolchain and dev archives, and everything in this repository, are Apache License v2.0 with LLVM
+Exceptions, same as LLVM (`LICENSE.TXT`). lld-link and llvm-mt include libxml2, which is MIT (its
+notice is in `licenses/` in the archives). The eight Microsoft VC runtime DLLs in `bin` are
+Microsoft's redistributable files. I didn't change them and they are not under these licenses (see
+`MODIFICATIONS.txt`). The rustc archive is Rust's own license (MIT or Apache-2.0) plus the licenses
+of the crates inside it, all listed in its `licenses/` folder.
 
-**Problems:** open an issue on this repository. This is a one-shot community release with no
-maintenance stream, so a fix is not promised — but a reproducer is genuinely useful, and the open
-questions in `RELEASE-NOTES.md` are the ones where a real-world report would help most.
+**Problems:** open an issue here. This is a one-shot release, so I can't promise a fix, but a small
+example that shows the problem helps a lot.
