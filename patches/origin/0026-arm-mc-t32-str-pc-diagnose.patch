@@ -1,0 +1,255 @@
+From da8981629df8a427e9a92ac410d413e1a3a1ebcb Mon Sep 17 00:00:00 2001
+From: hamed7ir <hamedhe016@gmail.com>
+Date: Tue, 3 Nov 2026 19:37:57 -0800
+Subject: [PATCH 06/14] 0026 ARM MC: diagnose T32 STR with Rt = pc
+
+STR (immediate) T3 and T4, and STR (register) T2, with Rt == 15 are
+UNPREDICTABLE. The assembler accepted all three without a word
+(str.w pc, [sp, #60], str pc, [r0, #-4], str.w pc, [r0, r1], and the
+forms without .w), while it rejected every sibling form (pre- and
+post-indexed STR, STRB, STRH, STRD, STRT, push, stm). The disassembler
+decoded them without the "potentially undefined instruction encoding"
+warning, and it did the same for the pre- and post-indexed STR, STRB and
+STRH with Rt == 15, whose decoder (DecodeT2LdStPre) takes Rt as a plain
+GPR. The V8 Thumb-2 port shipped such a str pc; Qualcomm cores trap on it
+(Venetium handoff, 2026-11-03).
+
+The assembler now rejects the three in validateInstruction with "operand
+must be a register in range [r0, r14]", as for the post-indexed form, and
+the disassembler reports SoftFail for them and for the six pre- and
+post-indexed forms in checkDecodedInstruction. The operand classes stay
+GPR: making them GPRnopc instead changed six existing ARM CodeGen and MC
+tests, among them a machine verifier error ("Expected a GPRnopc register,
+but got a GPR register"). A pre- or post-indexed store whose Rt is also
+its base register is UNPREDICTABLE as well and still decodes without a
+warning; that is another condition, and it is not changed here.
+
+SP and LR stay allowed. basic-thumb2-instructions.s assembled
+str.w pc, [r7, #257] as a valid instruction; that line moves to the new
+diagnostics test.
+
+Tests: llvm/test/MC/ARM/thumb2-str-pc.s,
+llvm/test/MC/Disassembler/ARM/thumb2-str-pc.txt.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../lib/Target/ARM/AsmParser/ARMAsmParser.cpp | 10 +++
+ .../ARM/Disassembler/ARMDisassembler.cpp      | 20 +++++
+ llvm/test/MC/ARM/basic-thumb2-instructions.s  |  2 -
+ llvm/test/MC/ARM/thumb2-str-pc.s              | 40 +++++++++
+ .../MC/Disassembler/ARM/thumb2-str-pc.txt     | 84 +++++++++++++++++++
+ 5 files changed, 154 insertions(+), 2 deletions(-)
+ create mode 100644 llvm/test/MC/ARM/thumb2-str-pc.s
+ create mode 100644 llvm/test/MC/Disassembler/ARM/thumb2-str-pc.txt
+
+diff --git a/llvm/lib/Target/ARM/AsmParser/ARMAsmParser.cpp b/llvm/lib/Target/ARM/AsmParser/ARMAsmParser.cpp
+index fe4872ff4..5d6aaf507 100644
+--- a/llvm/lib/Target/ARM/AsmParser/ARMAsmParser.cpp
++++ b/llvm/lib/Target/ARM/AsmParser/ARMAsmParser.cpp
+@@ -7826,6 +7826,16 @@ bool ARMAsmParser::validateInstruction(MCInst &Inst,
+                          /*Writeback*/ true, MnemonicOpsEndInd))
+       return true;
+     break;
++  case ARM::t2STRi12:
++  case ARM::t2STRi8:
++  case ARM::t2STRs:
++    // STR (immediate) T3 and T4, and STR (register) T2, with Rt == PC are
++    // UNPREDICTABLE. The pre- and post-indexed forms reject PC through their
++    // GPRnopc operand; these take GPR, so check here.
++    if (Inst.getOperand(0).getReg() == ARM::PC)
++      return Error(Operands[MnemonicOpsEndInd]->getStartLoc(),
++                   "operand must be a register in range [r0, r14]");
++    break;
+   case ARM::STR_PRE_IMM:
+   case ARM::STR_PRE_REG:
+   case ARM::t2STR_PRE:
+diff --git a/llvm/lib/Target/ARM/Disassembler/ARMDisassembler.cpp b/llvm/lib/Target/ARM/Disassembler/ARMDisassembler.cpp
+index 2fa07ee61..0b57b6600 100644
+--- a/llvm/lib/Target/ARM/Disassembler/ARMDisassembler.cpp
++++ b/llvm/lib/Target/ARM/Disassembler/ARMDisassembler.cpp
+@@ -6131,6 +6131,26 @@ static DecodeStatus checkDecodedInstruction(MCInst &MI, uint64_t &Size,
+           MI.getOperand(1).getReg() != ARM::SP)
+         return MCDisassembler::SoftFail;
+       return Result;
++    case ARM::t2STRi12:
++    case ARM::t2STRi8:
++    case ARM::t2STRs:
++      // STR (immediate) T3 and T4, and STR (register) T2, with Rt == PC are
++      // UNPREDICTABLE.
++      if (MI.getOperand(0).getReg() == ARM::PC)
++        return MCDisassembler::SoftFail;
++      return Result;
++    case ARM::t2STR_PRE:
++    case ARM::t2STR_POST:
++    case ARM::t2STRB_PRE:
++    case ARM::t2STRB_POST:
++    case ARM::t2STRH_PRE:
++    case ARM::t2STRH_POST:
++      // So are the pre- and post-indexed STR (immediate) T4, and STRB and STRH
++      // (immediate) T3. DecodeT2LdStPre decodes their Rt as a plain GPR, after
++      // the written-back base register, so Rt is operand 1.
++      if (MI.getOperand(1).getReg() == ARM::PC)
++        return MCDisassembler::SoftFail;
++      return Result;
+     default: return Result;
+   }
+ }
+diff --git a/llvm/test/MC/ARM/basic-thumb2-instructions.s b/llvm/test/MC/ARM/basic-thumb2-instructions.s
+index 61ebb19aa..b31b2a115 100644
+--- a/llvm/test/MC/ARM/basic-thumb2-instructions.s
++++ b/llvm/test/MC/ARM/basic-thumb2-instructions.s
+@@ -3067,7 +3067,6 @@ adds sp, #-4096
+         str r5, [r6, #32]
+         str r5, [r6, #33]
+         str r5, [r6, #257]
+-        str.w pc, [r7, #257]
+         str r2, [r4, #255]!
+         str r8, [sp, #4]!
+         str lr, [sp, #-4]!
+@@ -3079,7 +3078,6 @@ adds sp, #-4096
+ @ CHECK: str	r5, [r6, #32]           @ encoding: [0x35,0x62]
+ @ CHECK: str.w	r5, [r6, #33]           @ encoding: [0xc6,0xf8,0x21,0x50]
+ @ CHECK: str.w	r5, [r6, #257]          @ encoding: [0xc6,0xf8,0x01,0x51]
+-@ CHECK: str.w	pc, [r7, #257]          @ encoding: [0xc7,0xf8,0x01,0xf1]
+ @ CHECK: str	r2, [r4, #255]!         @ encoding: [0x44,0xf8,0xff,0x2f]
+ @ CHECK: str	r8, [sp, #4]!           @ encoding: [0x4d,0xf8,0x04,0x8f]
+ @ CHECK: str	lr, [sp, #-4]!          @ encoding: [0x4d,0xf8,0x04,0xed]
+diff --git a/llvm/test/MC/ARM/thumb2-str-pc.s b/llvm/test/MC/ARM/thumb2-str-pc.s
+new file mode 100644
+index 000000000..c04455b46
+--- /dev/null
++++ b/llvm/test/MC/ARM/thumb2-str-pc.s
+@@ -0,0 +1,40 @@
++@ RUN: rm -rf %t && split-file %s %t
++@ RUN: not llvm-mc -triple=thumbv7 -show-encoding < %t/pc.s 2>&1 | \
++@ RUN:   FileCheck %s --check-prefix=ERR --implicit-check-not=encoding
++@ RUN: not llvm-mc -triple=thumbv7-pc-windows-msvc -show-encoding < %t/pc.s 2>&1 | \
++@ RUN:   FileCheck %s --check-prefix=ERR --implicit-check-not=encoding
++@ RUN: llvm-mc -triple=thumbv7 -show-encoding < %t/ok.s | FileCheck %s --check-prefix=OK
++
++@ STR (immediate) T3 and T4, and STR (register) T2, with Rt = PC are
++@ UNPREDICTABLE. The pre- and post-indexed forms were already rejected, but
++@ these were assembled without a diagnostic. SP and LR stay allowed. The last
++@ line of pc.s was a valid instruction in basic-thumb2-instructions.s.
++
++@ Every line of pc.s is rejected because of its Rt. Whether that reason is the
++@ error itself or a note under "invalid instruction" depends on the triple:
++@ thumbv7 can also offer the ARM-mode form, a Windows triple cannot.
++@ ERR: <stdin>:1:{{[0-9]+}}: {{error|note}}: operand must be a register in range [r0, r14]
++@ ERR: <stdin>:2:{{[0-9]+}}: {{error|note}}: operand must be a register in range [r0, r14]
++@ ERR: <stdin>:3:{{[0-9]+}}: {{error|note}}: operand must be a register in range [r0, r14]
++@ ERR: <stdin>:4:{{[0-9]+}}: {{error|note}}: operand must be a register in range [r0, r14]
++@ ERR: <stdin>:5:{{[0-9]+}}: {{error|note}}: operand must be a register in range [r0, r14]
++@ ERR: <stdin>:6:{{[0-9]+}}: {{error|note}}: operand must be a register in range [r0, r14]
++
++@ OK: str.w sp, [r0, #4]                 @ encoding: [0xc0,0xf8,0x04,0xd0]
++@ OK: str.w lr, [sp, #60]                @ encoding: [0xcd,0xf8,0x3c,0xe0]
++@ OK: str sp, [r0, #-4]                  @ encoding: [0x40,0xf8,0x04,0xdc]
++@ OK: str.w sp, [r0, r1]                 @ encoding: [0x40,0xf8,0x01,0xd0]
++
++@--- pc.s
++        str.w pc, [sp, #60]
++        str pc, [r0, #-4]
++        str.w pc, [r0, r1]
++        str pc, [r0, #4095]
++        str pc, [r0, r1, lsl #2]
++        str.w pc, [r7, #257]
++
++@--- ok.s
++        str.w sp, [r0, #4]
++        str.w lr, [sp, #60]
++        str sp, [r0, #-4]
++        str.w sp, [r0, r1]
+diff --git a/llvm/test/MC/Disassembler/ARM/thumb2-str-pc.txt b/llvm/test/MC/Disassembler/ARM/thumb2-str-pc.txt
+new file mode 100644
+index 000000000..2a80b2d2b
+--- /dev/null
++++ b/llvm/test/MC/Disassembler/ARM/thumb2-str-pc.txt
+@@ -0,0 +1,84 @@
++# RUN: llvm-mc -triple=thumbv7 -disassemble %s 2>&1 | FileCheck %s
++# RUN: llvm-mc -triple=thumbv7-pc-windows-msvc -disassemble %s 2>&1 | FileCheck %s
++# RUN: llvm-mc -triple=thumbv8 -disassemble %s 2>&1 | FileCheck %s
++# RUN: llvm-mc -triple=thumbv7m -disassemble %s 2>&1 | FileCheck %s
++
++# STR (immediate) T3 and T4, and STR (register) T2, with Rt = PC are
++# UNPREDICTABLE, and so are the pre- and post-indexed STRB and STRH
++# (immediate) T3, so they decode with a warning. SP and LR stay defined, and
++# so does a pre-indexed load to PC.
++
++# str.w pc, [sp, #60]
++0xcd 0xf8 0x3c 0xf0
++#      CHECK: warning: potentially undefined instruction encoding
++# CHECK-NEXT: 0xcd 0xf8 0x3c 0xf0
++
++# str pc, [r0, #-4]
++0x40 0xf8 0x04 0xfc
++#      CHECK: warning: potentially undefined instruction encoding
++# CHECK-NEXT: 0x40 0xf8 0x04 0xfc
++
++# str.w pc, [r0, r1]
++0x40 0xf8 0x01 0xf0
++#      CHECK: warning: potentially undefined instruction encoding
++# CHECK-NEXT: 0x40 0xf8 0x01 0xf0
++
++# str.w pc, [r0, r1, lsl #3]
++0x40 0xf8 0x31 0xf0
++#      CHECK: warning: potentially undefined instruction encoding
++# CHECK-NEXT: 0x40 0xf8 0x31 0xf0
++
++# str pc, [r0, #4]!
++0x40 0xf8 0x04 0xff
++#      CHECK: warning: potentially undefined instruction encoding
++# CHECK-NEXT: 0x40 0xf8 0x04 0xff
++
++# str pc, [r0], #4
++0x40 0xf8 0x04 0xfb
++#      CHECK: warning: potentially undefined instruction encoding
++# CHECK-NEXT: 0x40 0xf8 0x04 0xfb
++
++# strb pc, [r0, #4]!
++0x00 0xf8 0x04 0xff
++#      CHECK: warning: potentially undefined instruction encoding
++# CHECK-NEXT: 0x00 0xf8 0x04 0xff
++
++# strb pc, [r0], #4
++0x00 0xf8 0x04 0xfb
++#      CHECK: warning: potentially undefined instruction encoding
++# CHECK-NEXT: 0x00 0xf8 0x04 0xfb
++
++# strh pc, [r0, #4]!
++0x20 0xf8 0x04 0xff
++#      CHECK: warning: potentially undefined instruction encoding
++# CHECK-NEXT: 0x20 0xf8 0x04 0xff
++
++# strh pc, [r0], #4
++0x20 0xf8 0x04 0xfb
++#      CHECK: warning: potentially undefined instruction encoding
++# CHECK-NEXT: 0x20 0xf8 0x04 0xfb
++
++# str.w sp, [r0, #4]
++0xc0 0xf8 0x04 0xd0
++# str.w lr, [sp, #60]
++0xcd 0xf8 0x3c 0xe0
++# str r1, [r0, #4]!
++0x40 0xf8 0x04 0x1f
++# ldr pc, [r0, #4]!
++0x50 0xf8 0x04 0xff
++
++# CHECK-NOT: warning
++# CHECK: str.w pc, [sp, #60]
++# CHECK: str pc, [r0, #-4]
++# CHECK: str.w pc, [r0, r1]
++# CHECK: str.w pc, [r0, r1, lsl #3]
++# CHECK: str pc, [r0, #4]!
++# CHECK: str pc, [r0], #4
++# CHECK: strb pc, [r0, #4]!
++# CHECK: strb pc, [r0], #4
++# CHECK: strh pc, [r0, #4]!
++# CHECK: strh pc, [r0], #4
++# CHECK: str.w sp, [r0, #4]
++# CHECK: str.w lr, [sp, #60]
++# CHECK: str r1, [r0, #4]!
++# CHECK: ldr pc, [r0, #4]!
+-- 
+2.53.0.windows.3
+

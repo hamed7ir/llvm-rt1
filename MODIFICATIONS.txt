@@ -1,4 +1,4 @@
-rt2.1: MODIFICATION NOTICE
+rt2.2: MODIFICATION NOTICE
 ==========================
 
 This package has CHANGED binaries built from the LLVM Project.
@@ -11,18 +11,17 @@ bin/ and lib/, and the ARM32 target files in lib/clang/23/lib/windows/, staged/ 
 WHAT THIS IS
 ------------
 
-rt2.1 is a full toolchain for compiling C and C++ for 32-bit ARM Windows (thumbv7) with clang-cl
-and lld-link. It is LLVM 23.1.1 with 16 patches.
+rt2.2 is a full toolchain for compiling C and C++ for 32-bit ARM Windows (thumbv7) with clang-cl
+and lld-link. It is LLVM 23.1.1 with 30 patches: rt2.1's 16 and 14 new ones.
 
-  build         : 2026-10-05, clang e240ad76c3a4429084c026fe0a9b0fce34025032
+  build         : 2026-11-04, clang 0462bd95317e650684c8dc5ea77dc37eacf59adb
   upstream base : llvmorg-23.1.1
-  built from    : patches/rt21-vs-23.1.1.patch, the full diff from clean llvmorg-23.1.1. It was
-                  made from the two source trees and checked by applying it to a fresh 23.1.1
-                  and comparing file for file.
-  the revision  : e240ad76c3a4429084c026fe0a9b0fce34025032 is the first 40 hex digits of the
+  built from    : patches/rt22-vs-23.1.1.patch, the full diff from clean llvmorg-23.1.1, made with
+                  git diff --binary. Applied to a clean 23.1.1 it gives the same tree, file for file.
+  the revision  : 0462bd95317e650684c8dc5ea77dc37eacf59adb is the first 40 hex digits of the
                   sha256 of that diff. So the binaries name the exact source they came from.
 
-The toolchain archive has 373 files:
+The toolchain archive has 389 files:
 
   bin/                    29 tools (28 programs and libclang.dll), built from the changed source.
                           Also 8 Microsoft VC runtime DLLs. Those are not mine and not changed,
@@ -30,18 +29,20 @@ The toolchain archive has 373 files:
   lib/clang/23/include/   303 resource headers that go with this clang
   lib/clang/23/lib/windows/
                           clang_rt.builtins-arm.lib, clang_rt.builtins-i386.lib,
-                          clang_rt.builtins-x86_64.lib and clang_rt.profile-x86_64.lib. All four
-                          are built by this clang from rt2.1's own compiler-rt source. The ARM one
-                          is the plain library, without the __rt_*div routines.
+                          clang_rt.builtins-x86_64.lib, clang_rt.profile-arm.lib,
+                          clang_rt.profile-i386.lib and clang_rt.profile-x86_64.lib. All six are
+                          built by this clang from LLVM 23.1.1's compiler-rt source, which rt2.2
+                          does not change. The ARM builtins library is the plain one, without the
+                          __rt_*div routines.
   staged/rtdiv/           an ARM builtins library WITH __rt_udiv/__rt_sdiv routines. It's a
                           fallback and is not used unless you copy it in. See its README.txt.
-  patches/                rt21-vs-23.1.1.patch (the full diff) and origin/ (every patch on its
+  patches/                rt22-vs-23.1.1.patch (the full diff) and origin/ (every patch on its
                           own, see origin/README.txt)
   runtime/                aeabi-shim.c, and an ARM32 .lib and .obj built from it by this clang
   licenses/               libxml2's license
   README.md, RELEASE-NOTES.md, LICENSE.TXT, MODIFICATIONS.txt
 
-The dev archive (rt2.1-23.1.1-rt2.1-dev-win64) is LLVM's libraries, headers and CMake files from
+The dev archive (rt2.2-23.1.1-rt2.2-dev-win64) is LLVM's libraries, headers and CMake files from
 the same build, so this notice covers it too. So does the copy of LLVM linked into the rustc in
 the rustc archive.
 
@@ -50,35 +51,32 @@ HOW TO TELL THIS IS THIS BUILD
 ------------------------------
 
   the 4 clang programs  --version prints
-                        "Varan clang version 23.1.1-rt2.1 (e240ad76c3a4429084c026fe0a9b0fce34025032)"
-  the 5 lld programs    print "Varan LLD 23.1.1". lld drops the suffix, so check lld by its
-                        sha256, not by its version string.
-  the llvm-* tools      most print "LLVM version 23.1.1-rt2.1". llvm-lib, llvm-ml, llvm-rc
-                        and llvm-mt have no version flag, so check those by sha256.
+                        "Varan clang version 23.1.1-rt2.2 (0462bd95317e650684c8dc5ea77dc37eacf59adb)"
+  the 5 lld programs    print "Varan LLD 23.1.1", the same as rt2.1's. lld drops the suffix, so check
+                        lld by its sha256, not by its version string.
+  the llvm-* tools      most print "LLVM version 23.1.1-rt2.2". llvm-lib, llvm-ml, llvm-rc and
+                        llvm-mt have no version flag, so check those by sha256.
 
 Search clang-cl.exe's bytes instead of trusting --version. In cmd.exe:
 
-    findstr /M /C:"e240ad76c3a4429084c026fe0a9b0fce34025032" clang-cl.exe
+    findstr /M /C:"0462bd95317e650684c8dc5ea77dc37eacf59adb" clang-cl.exe
 
 In git-bash:
 
-    grep -ac e240ad76c3a4429084c026fe0a9b0fce34025032 clang-cl.exe
+    grep -ac 0462bd95317e650684c8dc5ea77dc37eacf59adb clang-cl.exe
 
 And check the other side too. None of these should be in it:
 
-    a2c87785524736693e171d1a82d5aecf8c2203ff   an earlier rt2.1 build, before 0012 to 0020
-    rt21fix-wip                                 any work-in-progress build of this one
-    83c117cad0a9dee89e6daf6821c49156a3c562c0   the rt1 family
-
-Finding the right string isn't enough by itself. The earlier rt2.1 build and this one print the
-same LLVM version and the same vendor.
+    e240ad76c3a4429084c026fe0a9b0fce34025032   rt2.1
+    a2c87785524736693e171d1a82d5aecf8c2203ff   an earlier rt2.1 build, before rt2.1's 0012 to 0020
+    rt21fix-wip                                 any work-in-progress build of rt2.1
 
 
 WHAT WAS CHANGED
 ----------------
 
-16 changes, all mine. They ship as one checked diff (patches/rt21-vs-23.1.1.patch) and one by one
-in patches/origin/.
+30 changes. They ship as one checked diff (patches/rt22-vs-23.1.1.patch) and one by one in
+patches/origin/.
 
 From rt2 (first written for LLVM 18 as rt1 patches, then moved to 23.x. origin/README.txt says
 exactly how 0004 and 0007 differ from the rt1 versions):
@@ -88,7 +86,7 @@ exactly how 0004 and 0007 differ from the rt1 versions):
   0005  tests for the this-adjusting thunk cases of 0003.
   0007  ARM: a musttail vararg forwarder that also calls va_start crashed the backend.
   0010  clang: _setjmp on Windows ARM32 got the frame pointer instead of the entry stack pointer.
-New in rt2.1:
+From rt2.1:
   0011  clang: _ReadWriteBarrier, _ReadBarrier and _WriteBarrier are built in on 32-bit Arm.
   0012  clang and ARM: 26 MSVC ARM intrinsics, and _AddressOfReturnAddress.
   0013  clang: the lifetime_capture_by(this) deprecation warning is off by default.
@@ -101,9 +99,29 @@ New in rt2.1:
   0019  test only: 0007's test updated for LLVM 23.
   0020  ARM: _AddressOfReturnAddress saves LR in a leaf function, and keeps {r7, lr} next to
         each other on ELF Thumb2. This finishes 0012's _AddressOfReturnAddress.
+New in rt2.2, mine:
+  0021  lld/COFF: LTO uses the static relocation model for ARMNT.
+  0022  lld/COFF: the ARM delay-load tail merge calls __delayLoadHelper2 through an absolute
+        address (movw/movt and blx), with a base relocation, instead of a bl.
+  0023  llvm-lib: thumb bitcode maps to the ARMNT machine.
+  0024  CGProfile: no call-graph profile edges to intrinsics.
+  0025  lld/COFF: the call-graph sort uses each section's own priority, not one per symbol name.
+  0026  ARM MC: a T32 STR with Rt = pc is an error in the assembler and a SoftFail in the
+        disassembler.
+New in rt2.2, upstream LLVM fixes taken as they are (B02 with its context adjusted to apply):
+  B01  [ARM] Fix miscompile in MAC for 64b values (#231702)
+  B02  [ARM] Invalidate LiveRegPos when erasing current position (#226937)
+  B03  [DAGCombiner] Require a 0/1 carry-in when rebuilding a borrow chain (#223396)
+  B04  [DAGCombiner] Restrict combineOrOfSetCCToUSUBOCarry to ZeroOrOneBooleanContent (#224759)
+  B05  [SelectionDAG] Do not flag undef bitcast lanes as known zero
+  B06  [InstCombine] Fix miscompilation in sinkNotIntoOtherHandOfLogicalOp (#226783)
+  B07  [GlobalsAA] Handle self-referencing stores in AnalyzeUsesOfPointer (#213631)
+  B08  [SimplifyLibCalls] Fix ConstantInt construction based on char (#231159)
 
-Every patch from 0012 on has lit tests that fail without it, and an independent review. The
-changes those reviews caused were reviewed again.
+Every patch from rt2.1's 0012 to rt2.2's 0026 has lit tests that fail without it and an
+independent review. The changes those reviews caused were reviewed again. The upstream fixes B01
+to B08 bring upstream's own tests. B04, B05 and B08 have none that fails on rt2.1
+(RELEASE-NOTES.md says why).
 
 
 THIRD-PARTY CODE INSIDE THE TOOLS: libxml2
@@ -130,7 +148,8 @@ THE VC RUNTIME, AND WHY bin/ HAS EIGHT MICROSOFT DLLs
   msvcp140_codecvt_ids.dll
 
 These tools are built with the Visual Studio 2022 14.44 toolset and need MSVCP140.dll. Shipping
-the matching runtime means the toolchain works on its own.
+the matching runtime means the toolchain works on its own. They are the same eight files rt2.1
+ships.
 
 These are MICROSOFT's redistributable files, from the Visual Studio 2022 14.44 build tools.
 Microsoft lets you pass them on under the "Distributable Code" terms of the Visual Studio license
@@ -148,7 +167,10 @@ Nothing about layout, ABI or calling conventions was moved AWAY from MSVC. The c
 ABI-visible behaviour move clang TOWARD MSVC: 0012 expands the intrinsics like cl does, 0014
 treats pcs("aapcs-vfp") as the convention Windows on Arm already uses, 0016 emits the @feat.00
 symbol cl emits, and 0017 builds the C++ exception tables, funclets and frames that MSVC's runtime
-reads, including MSVC's rule that such a frame is never realigned.
+reads, including MSVC's rule that such a frame is never realigned. rt2.2's new patches change no
+ABI: 0021, 0022 and 0025 are in the linker, 0023 is in llvm-lib, 0024 only drops call-graph profile
+edges to intrinsics, 0026 only rejects an instruction the architecture calls UNPREDICTABLE, and B01
+to B08 fix wrong code.
 
 
 NO WARRANTY

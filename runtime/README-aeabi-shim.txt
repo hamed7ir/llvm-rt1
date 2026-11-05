@@ -1,4 +1,4 @@
-rt2.1: the __aeabi divide shim
+rt2.2: the __aeabi divide shim
 ==============================
 
 WHY THIS EXISTS
@@ -15,14 +15,14 @@ floating-point ones, like __aeabi_dadd. The shim has nothing to do with it.)
 
 WHAT IS HERE
 
-  aeabi-shim.c      the source (same as in rt2)
+  aeabi-shim.c      the source (the same as in rt2 and rt2.1)
   aeabi-shim.lib    give this to lld-link
   aeabi-shim.obj    or this, if you like the object better
 
 Both were built by THIS package's clang-cl for thumbv7-unknown-windows-msvc at -O1 with
 -mno-incremental-linker-compatible, so the COFF timestamp is zero and you can rebuild the same
 bytes. The object's machine field is 0x01C4 (ARMNT). Because this compiler built them, they are
-not rt2's binaries. The source is the same.
+not rt2.1's binaries: the code is the same, and the compiler's version string inside differs.
 
 WHAT IT GIVES YOU AND WHAT IT NEEDS
 

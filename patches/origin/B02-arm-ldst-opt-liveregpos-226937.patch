@@ -1,0 +1,205 @@
+From 4096ce6947d8c2c24f2a403d8e3944e409485cf1 Mon Sep 17 00:00:00 2001
+From: David Green <david.green@arm.com>
+Date: Tue, 29 Sep 2026 13:42:49 +0100
+Subject: [PATCH 08/14] [ARM] Invalidate LiveRegPos when erasing current
+ position (#226937)
+
+The load store optimizer could erase an instruction that is currently
+holding the position of the LiveRegPos. Make sure we recalculate
+LiveRegs if this happens.
+
+Fixes #223630
+
+rt2.2 backport from main: applied with git am -C2. In 23.1.1 the context after
+the new eraseInstr() differs (findFreeReg() still refreshes RegClassInfo itself;
+main reads RCI there). The code lines are the upstream ones; all 11 MBB.erase()
+calls in ARMLoadStoreOpt are converted, as upstream does. ARMPreAllocLoadStoreOpt,
+which has no LiveRegs, keeps its erase calls, as upstream does.
+---
+ llvm/lib/Target/ARM/ARMLoadStoreOptimizer.cpp | 35 ++++++++++-------
+ .../ARM/load_store_opt_eraseliveregs.mir      | 39 +++++++++++++++++++
+ 2 files changed, 61 insertions(+), 13 deletions(-)
+ create mode 100644 llvm/test/CodeGen/ARM/load_store_opt_eraseliveregs.mir
+
+diff --git a/llvm/lib/Target/ARM/ARMLoadStoreOptimizer.cpp b/llvm/lib/Target/ARM/ARMLoadStoreOptimizer.cpp
+index 8cdf2482b..2fe50973e 100644
+--- a/llvm/lib/Target/ARM/ARMLoadStoreOptimizer.cpp
++++ b/llvm/lib/Target/ARM/ARMLoadStoreOptimizer.cpp
+@@ -153,6 +153,8 @@ private:
+   SmallVector<const MergeCandidate *, 4> Candidates;
+   SmallVector<MachineInstr *, 4> MergeBaseCandidates;
+ 
++  MachineBasicBlock::iterator eraseInstr(MachineBasicBlock::iterator MI);
++
+   void moveLiveRegsBefore(const MachineBasicBlock &MBB,
+                           MachineBasicBlock::const_iterator Before);
+   unsigned findFreeReg(const TargetRegisterClass &RegClass);
+@@ -180,7 +182,7 @@ private:
+                            MachineBasicBlock::iterator &MBBI);
+   bool MergeBaseUpdateLoadStore(MachineInstr *MI);
+   bool MergeBaseUpdateLSMultiple(MachineInstr *MI);
+-  bool MergeBaseUpdateLSDouble(MachineInstr &MI) const;
++  bool MergeBaseUpdateLSDouble(MachineInstr &MI);
+   bool LoadStoreMultipleOpti(MachineBasicBlock &MBB);
+   bool MergeReturnIntoLDM(MachineBasicBlock &MBB);
+   bool CombineMovBx(MachineBasicBlock &MBB);
+@@ -585,6 +587,13 @@ void ARMLoadStoreOpt::UpdateBaseRegUses(MachineBasicBlock &MBB,
+   }
+ }
+ 
++MachineBasicBlock::iterator
++ARMLoadStoreOpt::eraseInstr(MachineBasicBlock::iterator MI) {
++  if (LiveRegsValid && LiveRegPos == MI)
++    LiveRegsValid = false;
++  return MI->eraseFromParent();
++}
++
+ /// Return the first register of class \p RegClass that is not in \p Regs.
+ unsigned ARMLoadStoreOpt::findFreeReg(const TargetRegisterClass &RegClass) {
+   if (!RegClassInfoValid) {
+@@ -935,7 +944,7 @@ MachineInstr *ARMLoadStoreOpt::MergeOpsUpdate(const MergeCandidate &Cand) {
+ 
+   // Remove instructions which have been merged.
+   for (MachineInstr *MI : Cand.Instrs)
+-    MBB.erase(MI);
++    eraseInstr(MI);
+ 
+   // Determine range between the earliest removed instruction and the new one.
+   if (EarliestAtBegin)
+@@ -1347,7 +1356,7 @@ bool ARMLoadStoreOpt::MergeBaseUpdateLSMultiple(MachineInstr *MI) {
+   }
+   if (MergeInstr != MBB.end()) {
+     LLVM_DEBUG(dbgs() << "  Erasing old increment: " << *MergeInstr);
+-    MBB.erase(MergeInstr);
++    eraseInstr(MergeInstr);
+   }
+ 
+   unsigned NewOpc = getUpdatingLSMultipleOpcode(Opcode, Mode);
+@@ -1364,7 +1373,7 @@ bool ARMLoadStoreOpt::MergeBaseUpdateLSMultiple(MachineInstr *MI) {
+   MIB.setMemRefs(MI->memoperands());
+ 
+   LLVM_DEBUG(dbgs() << "  Added new load/store: " << *MIB);
+-  MBB.erase(MBBI);
++  eraseInstr(MBBI);
+   return true;
+ }
+ 
+@@ -1521,7 +1530,7 @@ bool ARMLoadStoreOpt::MergeBaseUpdateLoadStore(MachineInstr *MI) {
+     }
+   }
+   LLVM_DEBUG(dbgs() << "  Erasing old increment: " << *MergeInstr);
+-  MBB.erase(MergeInstr);
++  eraseInstr(MergeInstr);
+ 
+   ARM_AM::AddrOpc AddSub = Offset < 0 ? ARM_AM::sub : ARM_AM::add;
+ 
+@@ -1610,12 +1619,12 @@ bool ARMLoadStoreOpt::MergeBaseUpdateLoadStore(MachineInstr *MI) {
+       LLVM_DEBUG(dbgs() << "  Added new instruction: " << *MIB);
+     }
+   }
+-  MBB.erase(MBBI);
++  eraseInstr(MBBI);
+ 
+   return true;
+ }
+ 
+-bool ARMLoadStoreOpt::MergeBaseUpdateLSDouble(MachineInstr &MI) const {
++bool ARMLoadStoreOpt::MergeBaseUpdateLSDouble(MachineInstr &MI) {
+   unsigned Opcode = MI.getOpcode();
+   assert((Opcode == ARM::t2LDRDi8 || Opcode == ARM::t2STRDi8) &&
+          "Must have t2STRDi8 or t2LDRDi8");
+@@ -1651,7 +1660,7 @@ bool ARMLoadStoreOpt::MergeBaseUpdateLSDouble(MachineInstr &MI) const {
+       return false;
+   }
+   LLVM_DEBUG(dbgs() << "  Erasing old increment: " << *MergeInstr);
+-  MBB.erase(MergeInstr);
++  eraseInstr(MergeInstr);
+ 
+   DebugLoc DL = MI.getDebugLoc();
+   MachineInstrBuilder MIB = BuildMI(MBB, MBBI, DL, TII->get(NewOpc));
+@@ -1673,7 +1682,7 @@ bool ARMLoadStoreOpt::MergeBaseUpdateLSDouble(MachineInstr &MI) const {
+   MIB.cloneMemRefs(MI);
+ 
+   LLVM_DEBUG(dbgs() << "  Added new load/store: " << *MIB);
+-  MBB.erase(MBBI);
++  eraseInstr(MBBI);
+   return true;
+ }
+ 
+@@ -1875,7 +1884,7 @@ bool ARMLoadStoreOpt::FixInvalidRegPairOp(MachineBasicBlock &MBB,
+       ++NumSTRD2STR;
+   }
+ 
+-  MBBI = MBB.erase(MBBI);
++  MBBI = eraseInstr(MBBI);
+   return true;
+ }
+ 
+@@ -2068,7 +2077,7 @@ bool ARMLoadStoreOpt::MergeReturnIntoLDM(MachineBasicBlock &MBB) {
+       PrevMI.setDesc(TII->get(NewOpc));
+       MO.setReg(ARM::PC);
+       PrevMI.copyImplicitOps(*MBB.getParent(), *MBBI);
+-      MBB.erase(MBBI);
++      eraseInstr(MBBI);
+       return true;
+     }
+   }
+@@ -2094,8 +2103,8 @@ bool ARMLoadStoreOpt::CombineMovBx(MachineBasicBlock &MBB) {
+           .addReg(Use.getReg(), RegState::Kill)
+           .add(predOps(ARMCC::AL))
+           .copyImplicitOps(*MBBI);
+-      MBB.erase(MBBI);
+-      MBB.erase(Prev);
++      eraseInstr(MBBI);
++      eraseInstr(Prev);
+       return true;
+     }
+ 
+diff --git a/llvm/test/CodeGen/ARM/load_store_opt_eraseliveregs.mir b/llvm/test/CodeGen/ARM/load_store_opt_eraseliveregs.mir
+new file mode 100644
+index 000000000..f55ca51c6
+--- /dev/null
++++ b/llvm/test/CodeGen/ARM/load_store_opt_eraseliveregs.mir
+@@ -0,0 +1,39 @@
++# NOTE: Assertions have been autogenerated by utils/update_mir_test_checks.py UTC_ARGS: --version 6
++# RUN: llc -mtriple=armv7-unknown-linux-gnueabihf -run-pass=arm-ldst-opt -verify-machineinstrs %s -o - | FileCheck %s
++
++---
++name:            _Z9broadcastIJLi0ELi1ELi2ELi3ELi4ELi5EEEvP1QPKS0_S3_St16integer_sequenceIiJXspT_EEE
++tracksRegLiveness: true
++noPhis:          true
++noVRegs:         true
++body:             |
++  bb.0:
++    liveins: $r0, $r1, $r2
++
++    ; CHECK-LABEL: name: _Z9broadcastIJLi0ELi1ELi2ELi3ELi4ELi5EEEvP1QPKS0_S3_St16integer_sequenceIiJXspT_EEE
++    ; CHECK: liveins: $r0, $r1, $r2
++    ; CHECK-NEXT: {{  $}}
++    ; CHECK-NEXT: $r3 = ADDri $r2, 64, 14 /* CC::al */, $noreg, $noreg
++    ; CHECK-NEXT: VLDMDIA killed $r3, 14 /* CC::al */, $noreg, def $d17, def $d18, def $d19 :: (load (s64))
++    ; CHECK-NEXT: $r1 = VLDMDIA_UPD $r1, 14 /* CC::al */, $noreg, def $d20, def $d21, def $d22, def $d23 :: (load (s64))
++    ; CHECK-NEXT: $r2 = ADDri killed $r2, 104, 14 /* CC::al */, $noreg, $noreg
++    ; CHECK-NEXT: VLDMDIA killed $r2, 14 /* CC::al */, $noreg, def $d16, def $d17, def $d18 :: (load (s64))
++    ; CHECK-NEXT: VLDMDIA killed $r1, 14 /* CC::al */, $noreg, def $d19, def $d20, def $d21 :: (load (s64))
++    ; CHECK-NEXT: VSTRD killed undef renamable $d18, killed renamable $r0, 0, 14 /* CC::al */, undef $noreg :: (store (s64))
++    ; CHECK-NEXT: BX_RET 14 /* CC::al */, undef $noreg
++    renamable $d17 = VLDRD renamable $r2, 16, 14 /* CC::al */, undef $noreg :: (load (s64))
++    renamable $d18 = VLDRD renamable $r2, 18, 14 /* CC::al */, undef $noreg :: (load (s64))
++    renamable $d19 = VLDRD renamable $r2, 20, 14 /* CC::al */, undef $noreg :: (load (s64))
++    renamable $d20 = VLDRD renamable $r1, 0, 14 /* CC::al */, undef $noreg :: (load (s64))
++    renamable $d21 = VLDRD renamable $r1, 2, 14 /* CC::al */, undef $noreg :: (load (s64))
++    renamable $d22 = VLDRD renamable $r1, 4, 14 /* CC::al */, undef $noreg :: (load (s64))
++    renamable $d23 = VLDRD renamable $r1, 6, 14 /* CC::al */, undef $noreg :: (load (s64))
++    renamable $d16 = VLDRD renamable $r2, 26, 14 /* CC::al */, undef $noreg :: (load (s64))
++    renamable $d17 = VLDRD renamable $r2, 28, 14 /* CC::al */, undef $noreg :: (load (s64))
++    renamable $d18 = VLDRD killed renamable $r2, 30, 14 /* CC::al */, undef $noreg :: (load (s64))
++    renamable $d19 = VLDRD renamable $r1, 8, 14 /* CC::al */, undef $noreg :: (load (s64))
++    renamable $d20 = VLDRD renamable $r1, 10, 14 /* CC::al */, undef $noreg :: (load (s64))
++    renamable $d21 = VLDRD killed renamable $r1, 12, 14 /* CC::al */, undef $noreg :: (load (s64))
++    VSTRD killed undef renamable $d18, killed renamable $r0, 0, 14 /* CC::al */, undef $noreg :: (store (s64))
++    BX_RET 14 /* CC::al */, undef $noreg
++...
+-- 
+2.53.0.windows.3
+

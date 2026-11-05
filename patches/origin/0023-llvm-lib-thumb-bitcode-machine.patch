@@ -1,0 +1,83 @@
+From 9f8ca07decd9eb8d9c93b221338c94a2476fb202 Mon Sep 17 00:00:00 2001
+From: hamed7ir <hamedhe016@gmail.com>
+Date: Tue, 3 Nov 2026 19:37:55 -0800
+Subject: [PATCH 03/14] 0023 llvm-lib: Triple::thumb maps to ARMNT for bitcode
+
+getBitcodeFileMachine had no case for Triple::thumb. Windows ARM32
+bitcode has a thumb triple (thumbv7-pc-windows-msvc), so llvm-lib
+refused to archive it: "unknown arch in target triple". Map thumb to
+IMAGE_FILE_MACHINE_ARMNT, as lld's BitcodeFile::getMachineType already
+does (lld/COFF/InputFiles.cpp).
+
+Test: llvm/test/tools/llvm-lib/thumb-bitcode.test.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ llvm/lib/ToolDrivers/llvm-lib/LibDriver.cpp |  1 +
+ llvm/test/tools/llvm-lib/thumb-bitcode.test | 42 +++++++++++++++++++++
+ 2 files changed, 43 insertions(+)
+ create mode 100644 llvm/test/tools/llvm-lib/thumb-bitcode.test
+
+diff --git a/llvm/lib/ToolDrivers/llvm-lib/LibDriver.cpp b/llvm/lib/ToolDrivers/llvm-lib/LibDriver.cpp
+index 15d959d77..51cddebe8 100644
+--- a/llvm/lib/ToolDrivers/llvm-lib/LibDriver.cpp
++++ b/llvm/lib/ToolDrivers/llvm-lib/LibDriver.cpp
+@@ -192,6 +192,7 @@ static Expected<COFF::MachineTypes> getBitcodeFileMachine(MemoryBufferRef MB) {
+   case Triple::x86_64:
+     return COFF::IMAGE_FILE_MACHINE_AMD64;
+   case Triple::arm:
++  case Triple::thumb:
+     return COFF::IMAGE_FILE_MACHINE_ARMNT;
+   case Triple::aarch64:
+     return T.isWindowsArm64EC() ? COFF::IMAGE_FILE_MACHINE_ARM64EC
+diff --git a/llvm/test/tools/llvm-lib/thumb-bitcode.test b/llvm/test/tools/llvm-lib/thumb-bitcode.test
+new file mode 100644
+index 000000000..76aef6c08
+--- /dev/null
++++ b/llvm/test/tools/llvm-lib/thumb-bitcode.test
+@@ -0,0 +1,42 @@
++REQUIRES: arm-registered-target
++
++Windows ARM32 bitcode has a thumb triple (thumbv7-pc-windows-msvc), as Windows
++ARM32 objects do. llvm-lib infers the ARMNT machine type from it.
++
++RUN: rm -rf %t && split-file %s %t
++RUN: llvm-as %t/thumb.ll -o %t/thumb.bc
++RUN: llvm-mc -triple=thumbv7-pc-windows-msvc -filetype=obj -o %t/thumb.obj %S/Inputs/a.s
++RUN: llvm-mc -triple=x86_64-pc-windows-msvc -filetype=obj -o %t/x86_64.obj %S/Inputs/a.s
++
++Bitcode on its own, with /machine:arm, and mixed with an ARMNT object. The
++archive's symbol table has the bitcode's symbol:
++
++RUN: llvm-lib /out:%t/bc.lib %t/thumb.bc
++RUN: llvm-nm --print-armap %t/bc.lib | FileCheck %s --check-prefix=SYM
++RUN: llvm-lib /machine:arm /out:%t/bc-arm.lib %t/thumb.bc
++RUN: llvm-lib /out:%t/mixed.lib %t/thumb.obj %t/thumb.bc
++RUN: llvm-nm --print-armap %t/mixed.lib | FileCheck %s --check-prefix=MIXED
++
++SYM:        Archive map
++SYM-NEXT:   f in {{.*}}thumb.bc
++MIXED:      Archive map
++MIXED-NEXT: a in {{.*}}thumb.obj
++MIXED-NEXT: f in {{.*}}thumb.bc
++
++The machine type is ARMNT, named arm, so it conflicts with x64, whichever comes
++first, and with /machine:x64:
++
++RUN: not llvm-lib %t/x86_64.obj %t/thumb.bc 2>&1 | FileCheck %s
++RUN: not llvm-lib %t/thumb.bc %t/x86_64.obj 2>&1 | FileCheck %s --check-prefix=REV
++RUN: not llvm-lib /machine:x64 %t/thumb.bc 2>&1 | FileCheck %s --check-prefix=FLAG
++CHECK: thumb.bc: file machine type arm conflicts with library machine type x64 (inferred from earlier file '{{.*}}x86_64.obj')
++REV: x86_64.obj: file machine type x64 conflicts with library machine type arm (inferred from earlier file '{{.*}}thumb.bc')
++FLAG: thumb.bc: file machine type arm conflicts with library machine type x64 (from '/machine:x64' flag)
++
++#--- thumb.ll
++target datalayout = "e-m:w-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64"
++target triple = "thumbv7-pc-windows-msvc"
++
++define dso_local arm_aapcs_vfpcc void @f() {
++  ret void
++}
+-- 
+2.53.0.windows.3
+

@@ -1,0 +1,175 @@
+From e23cb601a96cc56f42c467deb41dade4a1aeb169 Mon Sep 17 00:00:00 2001
+From: hamed7ir <hamedhe016@gmail.com>
+Date: Tue, 3 Nov 2026 19:37:56 -0800
+Subject: [PATCH 05/14] 0025 lld COFF: deterministic call-graph sort
+
+Writer::sortSections() copied computeCallGraphProfileOrder()'s
+pointer-keyed DenseMap into the name-keyed /order table and then sorted
+by name. When two call-graph sections have leaders with the same name,
+for example static functions with -ffunction-sections, whichever was
+visited last won and both sections got its priority. The visiting order
+follows heap addresses, so the layout of the same inputs changed from
+link to link. Seen in Venetium's chrome.dll: libwebp's and brotli's static
+ReadHuffmanCode swap places between relinks.
+
+Sort each partial section by the chunk's own C3 priority, as the ELF port
+does, and return: /order already turns the call-graph sort off. The rest
+stays as it was. Sections outside the graph keep priority 0 and the stable
+sort, and so does a section without a leader symbol (a non-COMDAT section,
+such as a plain .text) even when it is in the graph, because only a
+leader's name could reach the /order table.
+
+Tests: lld/test/COFF/cgprofile-same-name.s,
+lld/test/COFF/cgprofile-no-leader.s.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ lld/COFF/Writer.cpp                 | 21 +++++++++---
+ lld/test/COFF/cgprofile-no-leader.s | 43 +++++++++++++++++++++++++
+ lld/test/COFF/cgprofile-same-name.s | 50 +++++++++++++++++++++++++++++
+ 3 files changed, 110 insertions(+), 4 deletions(-)
+ create mode 100644 lld/test/COFF/cgprofile-no-leader.s
+ create mode 100644 lld/test/COFF/cgprofile-same-name.s
+
+diff --git a/lld/COFF/Writer.cpp b/lld/COFF/Writer.cpp
+index 4538fd632..5a4c82e52 100644
+--- a/lld/COFF/Writer.cpp
++++ b/lld/COFF/Writer.cpp
+@@ -1133,12 +1133,25 @@ static bool shouldStripSectionSuffix(SectionChunk *sc, StringRef name,
+ 
+ void Writer::sortSections() {
+   if (!ctx.config.callGraphProfile.empty()) {
++    // Sort by each section's own C3 priority. Copying the priorities into the
++    // name-keyed ctx.config.order mixed up sections that share a symbol name
++    // (e.g. static functions of the same name in different files): the one that
++    // won depended on the iteration order of this pointer-keyed map, i.e. on
++    // heap addresses, so the layout changed from link to link. /order cannot be
++    // in use here (it turns the call graph sort off). As before, only sections
++    // with a leader symbol (COMDAT sections) move: a section without one, such
++    // as a plain .text, keeps priority 0 even when it is in the call graph.
+     DenseMap<const SectionChunk *, int> order =
+         computeCallGraphProfileOrder(ctx);
+-    for (auto it : order) {
+-      if (DefinedRegular *sym = it.first->sym)
+-        ctx.config.order[sym->getName()] = it.second;
+-    }
++    auto priority = [&](const Chunk *c) {
++      auto *sc = dyn_cast<SectionChunk>(c);
++      return sc && sc->sym ? order.lookup(sc) : 0;
++    };
++    for (auto it : partialSections)
++      llvm::stable_sort(it.second->chunks, [&](const Chunk *a, const Chunk *b) {
++        return priority(a) < priority(b);
++      });
++    return;
+   }
+   if (!ctx.config.order.empty())
+     for (auto it : partialSections)
+diff --git a/lld/test/COFF/cgprofile-no-leader.s b/lld/test/COFF/cgprofile-no-leader.s
+new file mode 100644
+index 000000000..9e098af1d
+--- /dev/null
++++ b/lld/test/COFF/cgprofile-no-leader.s
+@@ -0,0 +1,43 @@
++# REQUIRES: x86
++
++## The call graph sort moves only sections that have a leader symbol, that is
++## COMDAT sections. A plain .text section has none, so it keeps its place in
++## the input order even when it is in the call graph. That was the rule while
++## the priorities went through the name-keyed /order table, and it stays the
++## rule now that each section is sorted by its own priority.
++
++# RUN: rm -rf %t && split-file %s %t
++# RUN: llvm-mc -filetype=obj -triple=x86_64-pc-win32 %t/a.s -o %t/a.obj
++# RUN: llvm-mc -filetype=obj -triple=x86_64-pc-win32 %t/b.s -o %t/b.obj
++# RUN: llvm-mc -filetype=obj -triple=x86_64-pc-win32 %t/c.s -o %t/c.obj
++# RUN: lld-link /subsystem:console /entry:main %t/a.obj %t/b.obj %t/c.obj /out:%t/out.exe /debug:symtab
++# RUN: llvm-nm --numeric-sort %t/out.exe | FileCheck %s
++
++## main calls h (weight 100), but main, g and h are in plain .text sections,
++## so they stay in input order: main, g, h.
++# CHECK:      140001000 T main
++# CHECK-NEXT: 140001004 T g
++# CHECK-NEXT: 140001008 T h
++
++#--- a.s
++    .text
++    .globl main
++main:
++    retq
++
++    .cg_profile main, h, 100
++
++#--- b.s
++    .text
++    .globl g
++g:
++    nop
++    nop
++    retq
++
++#--- c.s
++    .text
++    .globl h
++h:
++    nop
++    retq
+diff --git a/lld/test/COFF/cgprofile-same-name.s b/lld/test/COFF/cgprofile-same-name.s
+new file mode 100644
+index 000000000..225e9551f
+--- /dev/null
++++ b/lld/test/COFF/cgprofile-same-name.s
+@@ -0,0 +1,50 @@
++# REQUIRES: x86
++
++## Two static functions named f, each in its own COMDAT section in its own
++## object file, each with its own call graph edge. Each must get its own place
++## in the call graph order. The priorities used to be copied into the
++## name-keyed /order table, so both sections got the priority of whichever was
++## visited last in a pointer-keyed map: which one won changed from link to link,
++## and the layout was wrong either way.
++
++# RUN: rm -rf %t && split-file %s %t
++# RUN: llvm-mc -filetype=obj -triple=x86_64-pc-win32 %t/a.s -o %t/a.obj
++# RUN: llvm-mc -filetype=obj -triple=x86_64-pc-win32 %t/b.s -o %t/b.obj
++# RUN: lld-link /subsystem:console /entry:main %t/a.obj %t/b.obj /out:%t/out.exe /debug:symtab
++# RUN: llvm-nm --numeric-sort %t/out.exe | FileCheck %s
++
++## The call graph sort makes two clusters, main and the f of a.s (weight 100),
++## then g and the f of b.s (weight 10). The two f have different sizes (2 and 3
++## bytes), so the addresses show which f is where. The old priorities could only
++## give "main f f g" or "main g f f".
++# CHECK:      140001000 T main
++# CHECK-NEXT: 140001001 t f
++# CHECK-NEXT: 140001003 T g
++# CHECK-NEXT: 140001004 t f
++
++#--- a.s
++    .section .text,"ax",one_only,main
++    .globl main
++main:
++    retq
++
++    .section .text,"ax",one_only,f
++f:
++    nop
++    retq
++
++    .cg_profile main, f, 100
++
++#--- b.s
++    .section .text,"ax",one_only,g
++    .globl g
++g:
++    retq
++
++    .section .text,"ax",one_only,f
++f:
++    nop
++    nop
++    retq
++
++    .cg_profile g, f, 10
+-- 
+2.53.0.windows.3
+

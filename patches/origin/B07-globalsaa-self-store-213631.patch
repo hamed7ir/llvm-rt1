@@ -1,0 +1,57 @@
+From c453914b6efe63518af8edfba39b48dee997a17e Mon Sep 17 00:00:00 2001
+From: Antonio Frighetto <me@antoniofrighetto.com>
+Date: Tue, 4 Aug 2026 08:47:01 +0200
+Subject: [PATCH 13/14] [GlobalsAA] Handle self-referencing stores in
+ `AnalyzeUsesOfPointer` (#213631)
+
+Correctly recognize that a global address does escape when it is stored
+into itself. Such globals were previously incorrectly marked as
+non-address-taken.
+
+Fixes: https://github.com/llvm/llvm-project/issues/213232.
+(cherry picked from commit 2b3dd2dc32be01ebb74c15d919822538db0292db)
+---
+ llvm/lib/Analysis/GlobalsModRef.cpp              |  3 ++-
+ .../Analysis/GlobalsModRef/self-addresstaken.ll  | 16 ++++++++++++++++
+ 2 files changed, 18 insertions(+), 1 deletion(-)
+ create mode 100644 llvm/test/Analysis/GlobalsModRef/self-addresstaken.ll
+
+diff --git a/llvm/lib/Analysis/GlobalsModRef.cpp b/llvm/lib/Analysis/GlobalsModRef.cpp
+index 1a0ae25b2..6471cc0d5 100644
+--- a/llvm/lib/Analysis/GlobalsModRef.cpp
++++ b/llvm/lib/Analysis/GlobalsModRef.cpp
+@@ -328,7 +328,8 @@ bool GlobalsAAResult::AnalyzeUsesOfPointer(Value *V,
+       if (Readers)
+         Readers->insert(LI->getParent()->getParent());
+     } else if (StoreInst *SI = dyn_cast<StoreInst>(I)) {
+-      if (V == SI->getOperand(1)) {
++      // Check the pointer operand use of the store.
++      if (&U == &SI->getOperandUse(1)) {
+         if (Writers)
+           Writers->insert(SI->getParent()->getParent());
+       } else if (SI->getOperand(1) != OkayStoreDest) {
+diff --git a/llvm/test/Analysis/GlobalsModRef/self-addresstaken.ll b/llvm/test/Analysis/GlobalsModRef/self-addresstaken.ll
+new file mode 100644
+index 000000000..57fd8259f
+--- /dev/null
++++ b/llvm/test/Analysis/GlobalsModRef/self-addresstaken.ll
+@@ -0,0 +1,16 @@
++; RUN: opt < %s -passes='require<globals-aa>,aa-eval' -print-all-alias-modref-info -disable-output 2>&1 | FileCheck %s
++
++; Ensure @g is correctly marked as address taken when it is stored into itself.
++
++@g = internal global ptr null
++
++; CHECK-LABEL: self_addresstaken
++; CHECK:       MayAlias:	ptr* %p, ptr* @g
++
++define ptr @self_addresstaken() {
++  store ptr @g, ptr @g, align 8
++  %p = load ptr, ptr @g, align 8
++  store ptr null, ptr %p, align 8
++  %q = load ptr, ptr @g, align 8
++  ret ptr %q
++}
+-- 
+2.53.0.windows.3
+

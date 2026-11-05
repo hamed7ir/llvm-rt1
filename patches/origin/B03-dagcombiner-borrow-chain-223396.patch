@@ -1,0 +1,181 @@
+From a846940e2ee47f714870a7cb468175fe64bfbcd1 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Pawe=C5=82=20Bylica?= <pawel@hepcolgum.band>
+Date: Mon, 14 Sep 2026 17:37:23 +0200
+Subject: [PATCH 09/14] [DAGCombiner] Require a 0/1 carry-in when rebuilding a
+ borrow chain (#223396)
+
+combineOrOfSetCCToUSUBOCarry (aae871ba1224) rewrites
+
+  carry_out = (A <u B) | ((A == B) & carry_in)
+
+to USUBO_CARRY(A, B, carry_in), accepting any value as carry_in.
+
+USUBO_CARRY's third operand is specified as "1 if and only if there is
+an incoming carry/borrow", so 0 and 1 are its only meaningful values.
+Unlike SADDO_CARRY/SSUBO_CARRY it does not fall back to
+getBooleanContents for wider types. The matched `and` is bitwise against
+a 0/1 setcc, so only bit 0 of carry_in reaches carry_out and nothing
+else constrains it; a carry_in with any other bit set is outside the
+operand's contract and miscompiles.
+
+Require carry_in to be known 0/1. Check known bits rather than look for
+an `and carry_in, 1`: only bit 0 is demanded inside the `and`, so such a
+mask is usually folded away before this combine runs. An i1 carry_in,
+which is what a real borrow chain produces, passes trivially.
+
+Fixes #222839.
+
+Assisted-by: Claude Code
+(cherry picked from commit 4eba5bce282ded21bb912b22aae4aa91e27818da)
+---
+ llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp |  7 ++
+ llvm/test/CodeGen/AArch64/cgp-usubo.ll        | 19 ++++
+ llvm/test/CodeGen/X86/subcarry.ll             | 90 +++++++++++++++++++
+ 3 files changed, 116 insertions(+)
+
+diff --git a/llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp b/llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp
+index 67e16dcb4..8f07e311f 100644
+--- a/llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp
++++ b/llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp
+@@ -3968,6 +3968,13 @@ static SDValue combineOrOfSetCCToUSUBOCarry(SDNode *N, SelectionDAG &DAG,
+                                                     *DAG.getContext(), IntVT)))
+     return SDValue();
+ 
++  // USUBO_CARRY's carry-in must be 0 or 1, which the matched pattern does not
++  // guarantee.
++  if (!DAG.MaskedValueIsZero(
++          CarryIn,
++          APInt::getBitsSetFrom(CarryIn.getScalarValueSizeInBits(), 1)))
++    return SDValue();
++
+   SDLoc DL(N);
+   SDVTList VTs = DAG.getVTList(IntVT, N->getValueType(0));
+   return DAG.getNode(ISD::USUBO_CARRY, DL, VTs, A, B, CarryIn).getValue(1);
+diff --git a/llvm/test/CodeGen/AArch64/cgp-usubo.ll b/llvm/test/CodeGen/AArch64/cgp-usubo.ll
+index f990920e2..450965455 100644
+--- a/llvm/test/CodeGen/AArch64/cgp-usubo.ll
++++ b/llvm/test/CodeGen/AArch64/cgp-usubo.ll
+@@ -321,3 +321,22 @@ end:
+   ret i1 %ov
+ }
+ 
++
++; Negative test: %c is not known to be 0/1 and cannot be a borrow-in.
++; See https://github.com/llvm/llvm-project/issues/222839.
++define i8 @no_subcarry_carry_in_not_bool(i64 %a, i64 %b, i8 %c) nounwind {
++; CHECK-LABEL: no_subcarry_carry_in_not_bool:
++; CHECK:       // %bb.0:
++; CHECK-NEXT:    cmp x0, x1
++; CHECK-NEXT:    cset w8, eq
++; CHECK-NEXT:    and w8, w8, w2
++; CHECK-NEXT:    csinc w0, w8, wzr, hs
++; CHECK-NEXT:    ret
++  %ult = icmp ult i64 %a, %b
++  %ultz = zext i1 %ult to i8
++  %eq = icmp eq i64 %a, %b
++  %eqz = zext i1 %eq to i8
++  %and = and i8 %eqz, %c
++  %or = or i8 %ultz, %and
++  ret i8 %or
++}
+diff --git a/llvm/test/CodeGen/X86/subcarry.ll b/llvm/test/CodeGen/X86/subcarry.ll
+index cd361babf..b53a206b1 100644
+--- a/llvm/test/CodeGen/X86/subcarry.ll
++++ b/llvm/test/CodeGen/X86/subcarry.ll
+@@ -1607,3 +1607,93 @@ define <4 x i1> @no_subcarry_vector(<4 x i32> %x0, <4 x i32> %x1, <4 x i32> %y0,
+   ret <4 x i1> %br
+ }
+ 
++; Negative test: %c is not known to be 0/1 and cannot be a borrow-in.
++; See https://github.com/llvm/llvm-project/issues/222839.
++define i8 @no_subcarry_carry_in_not_bool(i64 %a, i64 %b, i8 %c) nounwind {
++; X64-LABEL: no_subcarry_carry_in_not_bool:
++; X64:       # %bb.0:
++; X64-NEXT:    cmpq %rsi, %rdi
++; X64-NEXT:    setb %cl
++; X64-NEXT:    sete %al
++; X64-NEXT:    andb %dl, %al
++; X64-NEXT:    orb %cl, %al
++; X64-NEXT:    retq
++;
++; X86-LABEL: no_subcarry_carry_in_not_bool:
++; X86:       # %bb.0:
++; X86-NEXT:    pushl %ebx
++; X86-NEXT:    pushl %edi
++; X86-NEXT:    pushl %esi
++; X86-NEXT:    movl 24(%esp), %eax
++; X86-NEXT:    movl 28(%esp), %ecx
++; X86-NEXT:    movl 16(%esp), %edx
++; X86-NEXT:    movl 20(%esp), %esi
++; X86-NEXT:    cmpl %eax, %edx
++; X86-NEXT:    movl %esi, %edi
++; X86-NEXT:    sbbl %ecx, %edi
++; X86-NEXT:    setb %bl
++; X86-NEXT:    xorl %ecx, %esi
++; X86-NEXT:    xorl %eax, %edx
++; X86-NEXT:    orl %esi, %edx
++; X86-NEXT:    sete %al
++; X86-NEXT:    andb 32(%esp), %al
++; X86-NEXT:    orb %bl, %al
++; X86-NEXT:    popl %esi
++; X86-NEXT:    popl %edi
++; X86-NEXT:    popl %ebx
++; X86-NEXT:    retl
++  %ult = icmp ult i64 %a, %b
++  %ultz = zext i1 %ult to i8
++  %eq = icmp eq i64 %a, %b
++  %eqz = zext i1 %eq to i8
++  %and = and i8 %eqz, %c
++  %or = or i8 %ultz, %and
++  ret i8 %or
++}
++
++; %c is known to be 0/1 here, so the borrow chain is still rebuilt. Deliberately
++; not an i1 carry: that would pass the check trivially and would not catch a
++; regression to a structural test for the carry-in.
++define i8 @subcarry_carry_in_known_bool(i64 %a, i64 %b, i8 %c) nounwind {
++; X64-LABEL: subcarry_carry_in_known_bool:
++; X64:       # %bb.0:
++; X64-NEXT:    shrb $7, %dl
++; X64-NEXT:    addb $-1, %dl
++; X64-NEXT:    sbbq %rsi, %rdi
++; X64-NEXT:    setb %al
++; X64-NEXT:    retq
++;
++; X86-LABEL: subcarry_carry_in_known_bool:
++; X86:       # %bb.0:
++; X86-NEXT:    pushl %ebx
++; X86-NEXT:    pushl %edi
++; X86-NEXT:    pushl %esi
++; X86-NEXT:    movl 24(%esp), %eax
++; X86-NEXT:    movl 28(%esp), %ecx
++; X86-NEXT:    movl 16(%esp), %edx
++; X86-NEXT:    movl 20(%esp), %esi
++; X86-NEXT:    movzbl 32(%esp), %ebx
++; X86-NEXT:    shrb $7, %bl
++; X86-NEXT:    cmpl %eax, %edx
++; X86-NEXT:    movl %esi, %edi
++; X86-NEXT:    sbbl %ecx, %edi
++; X86-NEXT:    setb %bh
++; X86-NEXT:    xorl %ecx, %esi
++; X86-NEXT:    xorl %eax, %edx
++; X86-NEXT:    orl %esi, %edx
++; X86-NEXT:    sete %al
++; X86-NEXT:    andb %bl, %al
++; X86-NEXT:    orb %bh, %al
++; X86-NEXT:    popl %esi
++; X86-NEXT:    popl %edi
++; X86-NEXT:    popl %ebx
++; X86-NEXT:    retl
++  %cin = lshr i8 %c, 7
++  %ult = icmp ult i64 %a, %b
++  %ultz = zext i1 %ult to i8
++  %eq = icmp eq i64 %a, %b
++  %eqz = zext i1 %eq to i8
++  %and = and i8 %eqz, %cin
++  %or = or i8 %ultz, %and
++  ret i8 %or
++}
+-- 
+2.53.0.windows.3
+

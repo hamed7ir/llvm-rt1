@@ -1,0 +1,44 @@
+From 32df037a5a589cd3a1efb558f597c7f0488c8610 Mon Sep 17 00:00:00 2001
+From: Craig Topper <craig.topper@sifive.com>
+Date: Sun, 20 Sep 2026 10:13:49 -0700
+Subject: [PATCH 10/14] [DAGCombiner] Restrict combineOrOfSetCCToUSUBOCarry to
+ ZeroOrOneBooleanContent. (#224759)
+
+We need to ensure the carry in matches boolean contents. We are checking
+MaskedValueIsZero which is only valid for ZeroOrOneBooleanContent.
+
+We could check ComputeNumSignBits for ZeroOrNegativeOneBooleanContent,
+but no in tree target supports USUBO_CARRY and
+ZeroOrNegativeOneBooleanContent.
+
+This was an oversight in #223396 due to incorrect documentation for
+USUBO_CARRY. I will fix that in a separate patch.
+
+(cherry picked from commit 51d290508d4dd980c3ba03bcc873926c41c6e591)
+---
+ llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp b/llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp
+index 8f07e311f..478685084 100644
+--- a/llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp
++++ b/llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp
+@@ -3968,9 +3968,12 @@ static SDValue combineOrOfSetCCToUSUBOCarry(SDNode *N, SelectionDAG &DAG,
+                                                     *DAG.getContext(), IntVT)))
+     return SDValue();
+ 
+-  // USUBO_CARRY's carry-in must be 0 or 1, which the matched pattern does not
+-  // guarantee.
+-  if (!DAG.MaskedValueIsZero(
++  // USUBO_CARRY's carry-in must match boolean contents, which the matched
++  // pattern does not guarantee.
++  // TODO: Extend to other boolean contents.
++  if (TLI.getBooleanContents(IntVT) !=
++          TargetLowering::ZeroOrOneBooleanContent ||
++      !DAG.MaskedValueIsZero(
+           CarryIn,
+           APInt::getBitsSetFrom(CarryIn.getScalarValueSizeInBits(), 1)))
+     return SDValue();
+-- 
+2.53.0.windows.3
+

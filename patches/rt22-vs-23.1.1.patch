@@ -1,16 +1,8 @@
-rt2.1 (fixed, BATCH-RT21-FIX-1) = llvmorg-23.1.1 + LLVM patches 0002 0003 0004 0005 0007 0010 0011
-                                   + 0012 0013 0014 0015 0016 0017 0018 0019 0020
-
-Generated from the source tree, not written by hand, and verified by applying it to fresh copies of
-llvmorg-23.1.1's files and comparing the result to the fixed rt2.1 source, file for file.
-
-The version string stays 23.1.1-rt2.1.  The revision -- the text in parentheses after it -- is the first 40 hex
-digits of the sha256 of THIS FILE: the shipped rt2.1 is a2c87785524736693e171d1a82d5aecf8c2203ff; the fixed build
-carries this file's own hash.  Hash the file you received and compare.
-
+diff --git a/clang/include/clang/Basic/BuiltinsARM.def b/clang/include/clang/Basic/BuiltinsARM.def
+index 15debc755..d2b6fa3b9 100644
 --- a/clang/include/clang/Basic/BuiltinsARM.def
 +++ b/clang/include/clang/Basic/BuiltinsARM.def
-@@ -223,6 +223,44 @@
+@@ -223,6 +223,44 @@ LANGBUILTIN(_MoveFromCoprocessor2, "UiIUiIUiIUiIUiIUi", "", ALL_MS_LANGUAGES)
  LANGBUILTIN(_MoveToCoprocessor, "vUiIUiIUiIUiIUiIUi", "", ALL_MS_LANGUAGES)
  LANGBUILTIN(_MoveToCoprocessor2, "vUiIUiIUiIUiIUiIUi", "", ALL_MS_LANGUAGES)
  
@@ -55,9 +47,11 @@ carries this file's own hash.  Hash the file you received and compare.
  TARGET_HEADER_BUILTIN(_BitScanForward, "UcUNi*UNi", "nh", INTRIN_H, ALL_MS_LANGUAGES, "")
  TARGET_HEADER_BUILTIN(_BitScanReverse, "UcUNi*UNi", "nh", INTRIN_H, ALL_MS_LANGUAGES, "")
  TARGET_HEADER_BUILTIN(_BitScanForward64, "UcUNi*ULLi", "nh", INTRIN_H, ALL_MS_LANGUAGES, "")
+diff --git a/clang/include/clang/Basic/DiagnosticSemaKinds.td b/clang/include/clang/Basic/DiagnosticSemaKinds.td
+index 2cb79b6ba..1447f8bb4 100644
 --- a/clang/include/clang/Basic/DiagnosticSemaKinds.td
 +++ b/clang/include/clang/Basic/DiagnosticSemaKinds.td
-@@ -3587,7 +3587,7 @@
+@@ -3587,7 +3587,7 @@ def err_capture_by_attribute_multiple : Error<
    "multiple '%0' attributes specified">;
  def warn_deprecated_capture_by_special_entity : Warning<
    "'lifetime_capture_by(%0)' is deprecated; use '%1' instead">,
@@ -66,9 +60,11 @@ carries this file's own hash.  Hash the file you received and compare.
  
  def err_init_method_bad_return_type : Error<
    "init methods must return an object pointer type, not %0">;
+diff --git a/clang/lib/Basic/Targets/ARM.cpp b/clang/lib/Basic/Targets/ARM.cpp
+index f963ce383..79604af32 100644
 --- a/clang/lib/Basic/Targets/ARM.cpp
 +++ b/clang/lib/Basic/Targets/ARM.cpp
-@@ -1450,6 +1450,10 @@
+@@ -1450,6 +1450,10 @@ WindowsARMTargetInfo::checkCallingConvention(CallingConv CC) const {
    case CC_X86FastCall:
    case CC_X86VectorCall:
      return CCCR_Ignore;
@@ -79,9 +75,11 @@ carries this file's own hash.  Hash the file you received and compare.
    case CC_C:
    case CC_DeviceKernel:
    case CC_PreserveMost:
+diff --git a/clang/lib/CodeGen/CGBuiltin.cpp b/clang/lib/CodeGen/CGBuiltin.cpp
+index 37846bbb0..91aac5298 100644
 --- a/clang/lib/CodeGen/CGBuiltin.cpp
 +++ b/clang/lib/CodeGen/CGBuiltin.cpp
-@@ -1725,9 +1725,11 @@
+@@ -1725,9 +1725,11 @@ enum class MSVCSetJmpKind {
  };
  }
  
@@ -96,7 +94,7 @@ carries this file's own hash.  Hash the file you received and compare.
  static RValue EmitMSVCRTSetJmp(CodeGenFunction &CGF, MSVCSetJmpKind SJKind,
                                 const CallExpr *E) {
    llvm::Value *Arg1 = nullptr;
-@@ -1742,7 +1744,8 @@
+@@ -1742,7 +1744,8 @@ static RValue EmitMSVCRTSetJmp(CodeGenFunction &CGF, MSVCSetJmpKind SJKind,
    } else {
      Name = SJKind == MSVCSetJmpKind::_setjmp ? "_setjmp" : "_setjmpex";
      Arg1Ty = CGF.Int8PtrTy;
@@ -106,9 +104,11 @@ carries this file's own hash.  Hash the file you received and compare.
        Arg1 = CGF.Builder.CreateCall(
            CGF.CGM.getIntrinsic(Intrinsic::sponentry, CGF.AllocaInt8PtrTy));
      } else
+diff --git a/clang/lib/CodeGen/TargetBuiltins/ARM.cpp b/clang/lib/CodeGen/TargetBuiltins/ARM.cpp
+index f7c37704d..381ce2e88 100644
 --- a/clang/lib/CodeGen/TargetBuiltins/ARM.cpp
 +++ b/clang/lib/CodeGen/TargetBuiltins/ARM.cpp
-@@ -2125,6 +2125,156 @@
+@@ -2125,6 +2125,156 @@ Value *CodeGenFunction::EmitARMBuiltinExpr(unsigned BuiltinID,
      return Builder.CreateCall(Emit);
    }
  
@@ -265,12 +265,15 @@ carries this file's own hash.  Hash the file you received and compare.
    if (BuiltinID == clang::ARM::BI__builtin_arm_dbg) {
      Value *Option = EmitScalarExpr(E->getArg(0));
      return Builder.CreateCall(CGM.getIntrinsic(Intrinsic::arm_dbg), Option);
+diff --git a/clang/lib/Headers/intrin.h b/clang/lib/Headers/intrin.h
+index 4cb8cac96..31623953f 100644
 --- a/clang/lib/Headers/intrin.h
 +++ b/clang/lib/Headers/intrin.h
-@@ -373,6 +373,38 @@
+@@ -372,6 +372,38 @@ static __inline__ void __DEFAULT_FN_ATTRS __nop(void) {
+ }
  #endif
  
- /*----------------------------------------------------------------------------*\
++/*----------------------------------------------------------------------------*\
 +|* MS ARM specific
 +\*----------------------------------------------------------------------------*/
 +#if defined(__arm__)
@@ -302,13 +305,14 @@ carries this file's own hash.  Hash the file you received and compare.
 +void __cdecl __prefetch(const void *);
 +#endif
 +
-+/*----------------------------------------------------------------------------*\
+ /*----------------------------------------------------------------------------*\
  |* MS AArch64 specific
  \*----------------------------------------------------------------------------*/
- #if defined(__aarch64__) || defined(__arm64ec__)
+diff --git a/clang/lib/Headers/intrin0.h b/clang/lib/Headers/intrin0.h
+index 2bca9fc87..3311ecb7e 100644
 --- a/clang/lib/Headers/intrin0.h
 +++ b/clang/lib/Headers/intrin0.h
-@@ -27,6 +27,13 @@
+@@ -27,6 +27,13 @@ unsigned char _BitScanForward(unsigned long *_Index, unsigned long _Mask);
  unsigned char _BitScanReverse(unsigned long *_Index, unsigned long _Mask);
  void _ReadWriteBarrier(void);
  
@@ -322,9 +326,11 @@ carries this file's own hash.  Hash the file you received and compare.
  #if defined(__aarch64__) || defined(__arm64ec__)
  unsigned int _CountLeadingZeros(unsigned long);
  unsigned int _CountLeadingZeros64(unsigned _int64);
+diff --git a/clang/lib/Sema/SemaARM.cpp b/clang/lib/Sema/SemaARM.cpp
+index 5e7504fab..3a86a3068 100644
 --- a/clang/lib/Sema/SemaARM.cpp
 +++ b/clang/lib/Sema/SemaARM.cpp
-@@ -1073,6 +1073,8 @@
+@@ -1073,6 +1073,8 @@ bool SemaARM::CheckARMBuiltinFunctionCall(const TargetInfo &TI,
      return false;
    case ARM::BI__builtin_arm_ssat:
      return SemaRef.BuiltinConstantArgRange(TheCall, 1, 1, 32);
@@ -333,6 +339,8 @@ carries this file's own hash.  Hash the file you received and compare.
    case ARM::BI__builtin_arm_usat:
      return SemaRef.BuiltinConstantArgRange(TheCall, 1, 0, 31);
    case ARM::BI__builtin_arm_ssat16:
+diff --git a/clang/test/CodeGen/arm-microsoft-intrinsics.c b/clang/test/CodeGen/arm-microsoft-intrinsics.c
+index a5f3e2c71..9fe177596 100644
 --- a/clang/test/CodeGen/arm-microsoft-intrinsics.c
 +++ b/clang/test/CodeGen/arm-microsoft-intrinsics.c
 @@ -1,4 +1,4 @@
@@ -341,7 +349,7 @@ carries this file's own hash.  Hash the file you received and compare.
  // RUN:    | FileCheck %s -check-prefix CHECK-MSVC
  
  // RUN: not %clang_cc1 -triple armv7-eabi -Werror -S -o /dev/null %s 2>&1 \
-@@ -40,3 +40,32 @@
+@@ -40,3 +40,32 @@ void check_MoveToCoprocessor2(unsigned int value) {
  // CHECK-MSVC: @llvm.arm.mcr2(i32 10, i32 7, i32 %{{[^,]*}}, i32 1, i32 0, i32 0)
  // CHECK-EABI: error: call to undeclared function '_MoveToCoprocessor2'
  
@@ -374,6 +382,9 @@ carries this file's own hash.  Hash the file you received and compare.
 +// CHECK-MSVC: fence syncscope("singlethread") seq_cst
 +// CHECK-MSVC-NEXT: ret void
 +// CHECK-EABI: error: call to undeclared function '_WriteBarrier'
+diff --git a/clang/test/CodeGen/arm-windows-intrin-addressofreturnaddress.c b/clang/test/CodeGen/arm-windows-intrin-addressofreturnaddress.c
+new file mode 100644
+index 000000000..7a5f998ec
 --- /dev/null
 +++ b/clang/test/CodeGen/arm-windows-intrin-addressofreturnaddress.c
 @@ -0,0 +1,20 @@
@@ -397,6 +408,9 @@ carries this file's own hash.  Hash the file you received and compare.
 +// CHECK-LABEL: define dso_local {{.*}}ptr @test_AddressOfReturnAddress()
 +// CHECK: [[R:%.*]] = call ptr @llvm.addressofreturnaddress.p0()
 +// CHECK: ret ptr [[R]]
+diff --git a/clang/test/CodeGen/arm-windows-intrin-copy.c b/clang/test/CodeGen/arm-windows-intrin-copy.c
+new file mode 100644
+index 000000000..fdcb228e4
 --- /dev/null
 +++ b/clang/test/CodeGen/arm-windows-intrin-copy.c
 @@ -0,0 +1,33 @@
@@ -433,6 +447,9 @@ carries this file's own hash.  Hash the file you received and compare.
 +// CHECK: [[R:%.*]] = bitcast double %{{.*}} to i64
 +// CHECK: ret i64 [[R]]
 +
+diff --git a/clang/test/CodeGen/arm-windows-intrin-count.c b/clang/test/CodeGen/arm-windows-intrin-count.c
+new file mode 100644
+index 000000000..6250308b4
 --- /dev/null
 +++ b/clang/test/CodeGen/arm-windows-intrin-count.c
 @@ -0,0 +1,59 @@
@@ -495,6 +512,9 @@ carries this file's own hash.  Hash the file you received and compare.
 +// CHECK: [[R:%.*]] = call i64 @llvm.cttz.i64(i64 %{{.*}}, i1 false)
 +// CHECK: trunc i64 [[R]] to i32
 +
+diff --git a/clang/test/CodeGen/arm-windows-intrin-interlockedadd.c b/clang/test/CodeGen/arm-windows-intrin-interlockedadd.c
+new file mode 100644
+index 000000000..0bb4b1198
 --- /dev/null
 +++ b/clang/test/CodeGen/arm-windows-intrin-interlockedadd.c
 @@ -0,0 +1,55 @@
@@ -553,6 +573,9 @@ carries this file's own hash.  Hash the file you received and compare.
 +// CHECK: [[OLD:%.*]] = atomicrmw add ptr %{{.*}}, i64 [[V:%.*]] release, align 8
 +// CHECK: add i64 [[OLD]], [[V]]
 +
+diff --git a/clang/test/CodeGen/arm-windows-intrin-mulhigh.c b/clang/test/CodeGen/arm-windows-intrin-mulhigh.c
+new file mode 100644
+index 000000000..77366d284
 --- /dev/null
 +++ b/clang/test/CodeGen/arm-windows-intrin-mulhigh.c
 @@ -0,0 +1,43 @@
@@ -599,6 +622,9 @@ carries this file's own hash.  Hash the file you received and compare.
 +// NOMS: ret i32 42
 +// NOMS: call {{.*}}i32 @_MulUnsignedHigh(
 +#endif
+diff --git a/clang/test/CodeGen/arm-windows-intrin-readstatusreg.c b/clang/test/CodeGen/arm-windows-intrin-readstatusreg.c
+new file mode 100644
+index 000000000..95fc8ffbf
 --- /dev/null
 +++ b/clang/test/CodeGen/arm-windows-intrin-readstatusreg.c
 @@ -0,0 +1,28 @@
@@ -630,6 +656,9 @@ carries this file's own hash.  Hash the file you received and compare.
 +
 +// CHECK-DAG: [[APSR]] = !{!"apsr"}
 +// CHECK-DAG: [[SPSR]] = !{!"spsr"}
+diff --git a/clang/test/CodeGen/arm-windows-intrin0.c b/clang/test/CodeGen/arm-windows-intrin0.c
+new file mode 100644
+index 000000000..df0acad54
 --- /dev/null
 +++ b/clang/test/CodeGen/arm-windows-intrin0.c
 @@ -0,0 +1,26 @@
@@ -659,6 +688,8 @@ carries this file's own hash.  Hash the file you received and compare.
 +unsigned int test_ctz64(unsigned __int64 x) { return _CountTrailingZeros64(x); }
 +// CHECK-LABEL: @test_ctz64(
 +// CHECK: call i64 @llvm.cttz.i64(
+diff --git a/clang/test/CodeGen/ms-barriers-intrinsics.c b/clang/test/CodeGen/ms-barriers-intrinsics.c
+index 3acb727ec..8cfa20498 100644
 --- a/clang/test/CodeGen/ms-barriers-intrinsics.c
 +++ b/clang/test/CodeGen/ms-barriers-intrinsics.c
 @@ -4,6 +4,9 @@
@@ -671,7 +702,7 @@ carries this file's own hash.  Hash the file you received and compare.
  
  // intrin.h needs size_t, but -ffreestanding prevents us from getting it from
  // stddef.h.  Work around it with this typedef.
-@@ -12,19 +15,19 @@
+@@ -12,19 +15,19 @@ typedef __SIZE_TYPE__ size_t;
  #include <intrin.h>
  
  void test_ReadWriteBarrier(void) { _ReadWriteBarrier(); }
@@ -694,6 +725,8 @@ carries this file's own hash.  Hash the file you received and compare.
  // CHECK:   fence syncscope("singlethread") seq_cst
  // CHECK:   ret void
  // CHECK: }
+diff --git a/clang/test/CodeGen/ms-setjmp.c b/clang/test/CodeGen/ms-setjmp.c
+index ad4df790a..8525dac60 100644
 --- a/clang/test/CodeGen/ms-setjmp.c
 +++ b/clang/test/CodeGen/ms-setjmp.c
 @@ -1,9 +1,13 @@
@@ -710,7 +743,7 @@ carries this file's own hash.  Hash the file you received and compare.
  typedef char jmp_buf[1];
  
  #ifdef DECLARE_SETJMP
-@@ -28,6 +32,11 @@
+@@ -28,6 +32,11 @@ int test_setjmp(void) {
    // AARCH64:       %[[addr:.*]] = call ptr @llvm.sponentry.p0()
    // AARCH64:       %[[call:.*]] = call i32 @_setjmpex(ptr @jb, ptr %[[addr]])
    // AARCH64-NEXT:  ret i32 %[[call]]
@@ -722,7 +755,7 @@ carries this file's own hash.  Hash the file you received and compare.
  }
  
  int test_setjmpex(void) {
-@@ -41,4 +50,9 @@
+@@ -41,4 +50,9 @@ int test_setjmpex(void) {
    // AARCH64:       %[[addr:.*]] = call ptr @llvm.sponentry.p0()
    // AARCH64:       %[[call:.*]] = call i32 @_setjmpex(ptr @jb, ptr %[[addr]])
    // AARCH64-NEXT:  ret i32 %[[call]]
@@ -732,6 +765,9 @@ carries this file's own hash.  Hash the file you received and compare.
 +  // ARM32:       %[[call:.*]] = call arm_aapcs_vfpcc i32 @_setjmpex(ptr @jb, ptr %[[addr]])
 +  // ARM32-NEXT:  ret i32 %[[call]]
  }
+diff --git a/clang/test/CodeGenCXX/arm-windows-pcs.cpp b/clang/test/CodeGenCXX/arm-windows-pcs.cpp
+new file mode 100644
+index 000000000..a31c3eb4c
 --- /dev/null
 +++ b/clang/test/CodeGenCXX/arm-windows-pcs.cpp
 @@ -0,0 +1,16 @@
@@ -751,6 +787,9 @@ carries this file's own hash.  Hash the file you received and compare.
 +
 +// CHECK-DAG: define dso_local arm_aapcs_vfpcc {{.*}}ptr @"?get@@YAP6AXPAMM@ZXZ"()
 +// CHECK-DAG: define internal arm_aapcs_vfpcc void @"?stage@@YAXPAMM@Z"(
+diff --git a/clang/test/Preprocessor/pragma_microsoft_arm.c b/clang/test/Preprocessor/pragma_microsoft_arm.c
+new file mode 100644
+index 000000000..1286edb27
 --- /dev/null
 +++ b/clang/test/Preprocessor/pragma_microsoft_arm.c
 @@ -0,0 +1,11 @@
@@ -765,6 +804,9 @@ carries this file's own hash.  Hash the file you received and compare.
 +#pragma intrinsic(_ReadBarrier)
 +#pragma intrinsic(_ReadWriteBarrier)
 +#pragma intrinsic(_WriteBarrier)
+diff --git a/clang/test/Sema/arm-windows-intrin-readstatusreg.c b/clang/test/Sema/arm-windows-intrin-readstatusreg.c
+new file mode 100644
+index 000000000..50ac17586
 --- /dev/null
 +++ b/clang/test/Sema/arm-windows-intrin-readstatusreg.c
 @@ -0,0 +1,20 @@
@@ -788,6 +830,9 @@ carries this file's own hash.  Hash the file you received and compare.
 +int not_constant(int r) {
 +  return _ReadStatusReg(r); // expected-error {{argument to '_ReadStatusReg' must be a constant integer}}
 +}
+diff --git a/clang/test/Sema/arm-windows-pcs.c b/clang/test/Sema/arm-windows-pcs.c
+new file mode 100644
+index 000000000..aaec4b5b3
 --- /dev/null
 +++ b/clang/test/Sema/arm-windows-pcs.c
 @@ -0,0 +1,20 @@
@@ -811,6 +856,9 @@ carries this file's own hash.  Hash the file you received and compare.
 +
 +// CHECK: define dso_local arm_aapcs_vfpcc float @with_pcs(
 +// CHECK: define dso_local arm_aapcs_vfpcc float @without_pcs(
+diff --git a/clang/test/SemaCXX/attr-lifetime-capture-by-deprecated-default.cpp b/clang/test/SemaCXX/attr-lifetime-capture-by-deprecated-default.cpp
+new file mode 100644
+index 000000000..1b25227d1
 --- /dev/null
 +++ b/clang/test/SemaCXX/attr-lifetime-capture-by-deprecated-default.cpp
 @@ -0,0 +1,24 @@
@@ -838,6 +886,8 @@ carries this file's own hash.  Hash the file you received and compare.
 +struct Modern {
 +  void set(const int &v [[clang::lifetime_capture_by_this]]);
 +};
+diff --git a/clang/test/SemaCXX/attr-lifetime-capture-by.cpp b/clang/test/SemaCXX/attr-lifetime-capture-by.cpp
+index 0848cf98c..e78dbcf36 100644
 --- a/clang/test/SemaCXX/attr-lifetime-capture-by.cpp
 +++ b/clang/test/SemaCXX/attr-lifetime-capture-by.cpp
 @@ -1,4 +1,4 @@
@@ -846,9 +896,11 @@ carries this file's own hash.  Hash the file you received and compare.
  
  struct S {
    const int *x;
+diff --git a/lld/COFF/Chunks.cpp b/lld/COFF/Chunks.cpp
+index efc9ff113..58b7d981a 100644
 --- a/lld/COFF/Chunks.cpp
 +++ b/lld/COFF/Chunks.cpp
-@@ -198,9 +198,11 @@
+@@ -198,9 +198,11 @@ void applyMOV32T(uint8_t *off, uint32_t v) {
  static void applyBranch20T(uint8_t *off, int32_t v) {
    if (!isInt<21>(v))
      error("relocation out of range");
@@ -862,7 +914,7 @@ carries this file's own hash.  Hash the file you received and compare.
    or16(off, (s << 10) | ((v >> 12) & 0x3f));
    or16(off + 2, (j1 << 13) | (j2 << 11) | ((v >> 1) & 0x7ff));
  }
-@@ -906,7 +908,14 @@
+@@ -906,7 +908,14 @@ void LocalImportChunk::writeTo(uint8_t *buf) const {
    if (ctx.config.is64()) {
      write64le(buf, sym->getRVA() + ctx.config.imageBase);
    } else {
@@ -878,9 +930,62 @@ carries this file's own hash.  Hash the file you received and compare.
    }
  }
  
+diff --git a/lld/COFF/DLL.cpp b/lld/COFF/DLL.cpp
+index 10bc89824..86623a2e3 100644
+--- a/lld/COFF/DLL.cpp
++++ b/lld/COFF/DLL.cpp
+@@ -306,7 +306,9 @@ static const uint8_t tailMergeARM[] = {
+     0x61, 0x46,             // mov     r1, ip
+     0x40, 0xf2, 0x00, 0x00, // mov.w   r0, #0 DELAY_IMPORT_DESCRIPTOR
+     0xc0, 0xf2, 0x00, 0x00, // mov.t   r0, #0 DELAY_IMPORT_DESCRIPTOR
+-    0x00, 0xf0, 0x00, 0xd0, // bl      #0 __delayLoadHelper2
++    0x40, 0xf2, 0x00, 0x02, // mov.w   r2, #0 __delayLoadHelper2
++    0xc0, 0xf2, 0x00, 0x02, // mov.t   r2, #0 __delayLoadHelper2
++    0x90, 0x47,             // blx     r2
+     0x84, 0x46,             // mov     ip, r0
+     0xbd, 0xec, 0x10, 0x0b, // vpop    {d0, d1, d2, d3, d4, d5, d6, d7}
+     0xbd, 0xe8, 0x0f, 0x48, // pop.w   {r0, r1, r2, r3, r11, lr}
+@@ -513,11 +515,16 @@ public:
+   void writeTo(uint8_t *buf) const override {
+     memcpy(buf, tailMergeARM, sizeof(tailMergeARM));
+     applyMOV32T(buf + 14, desc->getRVA() + ctx.config.imageBase);
+-    applyBranch24T(buf + 22, helper->getRVA() - rva - 26);
++    // Call the helper through an absolute address (Thumb bit set) instead of
++    // a bl. A bl reaches only +-16 MiB and synthetic chunks get no
++    // range-extension thunks; with LTO the helper (a native CRT object) lands
++    // before all LTO code, far from this chunk ("relocation out of range").
++    applyMOV32T(buf + 22, (helper->getRVA() + ctx.config.imageBase) | 1);
+   }
+ 
+   void getBaserels(std::vector<Baserel> *res) override {
+     res->emplace_back(rva + 14, IMAGE_REL_BASED_ARM_MOV32T);
++    res->emplace_back(rva + 22, IMAGE_REL_BASED_ARM_MOV32T);
+   }
+ 
+   Chunk *desc = nullptr;
+diff --git a/lld/COFF/LTO.cpp b/lld/COFF/LTO.cpp
+index 71413b031..800e003f6 100644
+--- a/lld/COFF/LTO.cpp
++++ b/lld/COFF/LTO.cpp
+@@ -69,7 +69,12 @@ lto::Config BitcodeCompiler::createConfig() {
+   // Use static reloc model on 32-bit x86 because it usually results in more
+   // compact code, and because there are also known code generation bugs when
+   // using the PIC model (see PR34306).
+-  if (ctx.config.machine == COFF::IMAGE_FILE_MACHINE_I386)
++  // Also on 32-bit ARM, which clang compiles for Windows with the static model.
++  // With PIC, the /GS stack-guard load becomes a PC-relative movw/movt pair,
++  // which COFF cannot represent ("Cannot represent this expression"), so every
++  // stack-protected function failed LTO code generation.
++  if (ctx.config.machine == COFF::IMAGE_FILE_MACHINE_I386 ||
++      ctx.config.machine == COFF::IMAGE_FILE_MACHINE_ARMNT)
+     c.RelocModel = Reloc::Static;
+   else
+     c.RelocModel = Reloc::PIC_;
+diff --git a/lld/COFF/Writer.cpp b/lld/COFF/Writer.cpp
+index 3cab426df..5a4c82e52 100644
 --- a/lld/COFF/Writer.cpp
 +++ b/lld/COFF/Writer.cpp
-@@ -230,10 +230,20 @@
+@@ -230,10 +230,20 @@ private:
                                        Defined *target, uint64_t p,
                                        uint16_t type, int margin,
                                        MachineTypes machine);
@@ -903,7 +1008,7 @@ carries this file's own hash.  Hash the file you received and compare.
    void removeEmptySections();
    void assignOutputSectionIndices();
    void createSymbolAndStringTable();
-@@ -486,7 +496,44 @@
+@@ -486,7 +496,44 @@ Writer::getThunk(DenseMap<uint64_t, Defined *> &lastThunks, Defined *target,
  // After adding thunks, we verify that all relocations are in range (with
  // no extra margin requirements). If this failed, we restart (throwing away
  // the previously created thunks) and retry with a wider margin.
@@ -949,7 +1054,7 @@ carries this file's own hash.  Hash the file you received and compare.
    bool addressesChanged = false;
    DenseMap<uint64_t, Defined *> lastThunks;
    DenseMap<std::pair<ObjFile *, Defined *>, uint32_t> thunkSymtabIndices;
-@@ -530,6 +577,18 @@
+@@ -530,6 +577,18 @@ bool Writer::createThunks(OutputSection *os, int margin) {
  
        uint64_t s = sym->getRVA();
  
@@ -968,7 +1073,7 @@ carries this file's own hash.  Hash the file you received and compare.
        if (isInRange(rel.Type, s, p, margin, machine))
          continue;
  
-@@ -632,12 +691,19 @@
+@@ -632,12 +691,19 @@ void Writer::createECCodeMap() {
  }
  
  // Verify that all relocations are in range, with no extra margin requirements.
@@ -991,7 +1096,7 @@ carries this file's own hash.  Hash the file you received and compare.
        continue;
      }
      MachineTypes machine = sc->getMachine();
-@@ -653,11 +719,14 @@
+@@ -653,11 +719,14 @@ bool Writer::verifyRanges(const std::vector<Chunk *> chunks) {
        uint64_t p = sc->getRVA() + rel.VirtualAddress;
        uint64_t s = sym->getRVA();
  
@@ -1009,7 +1114,7 @@ carries this file's own hash.  Hash the file you received and compare.
  }
  
  // Assign addresses and add thunks if necessary.
-@@ -673,7 +742,8 @@
+@@ -673,7 +742,8 @@ void Writer::finalizeAddresses() {
    }
  
    int pass = 0;
@@ -1019,7 +1124,7 @@ carries this file's own hash.  Hash the file you received and compare.
    while (true) {
      llvm::TimeTraceScope timeScope2("Add thunks pass");
  
-@@ -681,34 +751,55 @@
+@@ -681,34 +751,55 @@ void Writer::finalizeAddresses() {
      // adding them turned out ok.
      bool rangesOk = true;
      size_t numChunks = 0;
@@ -1086,7 +1191,7 @@ carries this file's own hash.  Hash the file you received and compare.
      }
  
      // Try adding thunks everywhere where it is needed, with a margin
-@@ -717,7 +808,7 @@
+@@ -717,7 +808,7 @@ void Writer::finalizeAddresses() {
      {
        llvm::TimeTraceScope timeScope3("Create thunks");
        for (OutputSection *sec : ctx.outputSections)
@@ -1095,6 +1200,39 @@ carries this file's own hash.  Hash the file you received and compare.
      }
      // If the verification above thought we needed thunks, we should have
      // added some.
+@@ -1042,12 +1133,25 @@ static bool shouldStripSectionSuffix(SectionChunk *sc, StringRef name,
+ 
+ void Writer::sortSections() {
+   if (!ctx.config.callGraphProfile.empty()) {
++    // Sort by each section's own C3 priority. Copying the priorities into the
++    // name-keyed ctx.config.order mixed up sections that share a symbol name
++    // (e.g. static functions of the same name in different files): the one that
++    // won depended on the iteration order of this pointer-keyed map, i.e. on
++    // heap addresses, so the layout changed from link to link. /order cannot be
++    // in use here (it turns the call graph sort off). As before, only sections
++    // with a leader symbol (COMDAT sections) move: a section without one, such
++    // as a plain .text, keeps priority 0 even when it is in the call graph.
+     DenseMap<const SectionChunk *, int> order =
+         computeCallGraphProfileOrder(ctx);
+-    for (auto it : order) {
+-      if (DefinedRegular *sym = it.first->sym)
+-        ctx.config.order[sym->getName()] = it.second;
+-    }
++    auto priority = [&](const Chunk *c) {
++      auto *sc = dyn_cast<SectionChunk>(c);
++      return sc && sc->sym ? order.lookup(sc) : 0;
++    };
++    for (auto it : partialSections)
++      llvm::stable_sort(it.second->chunks, [&](const Chunk *a, const Chunk *b) {
++        return priority(a) < priority(b);
++      });
++    return;
+   }
+   if (!ctx.config.order.empty())
+     for (auto it : partialSections)
+diff --git a/lld/test/COFF/arm-thumb-branch20t-encoding.s b/lld/test/COFF/arm-thumb-branch20t-encoding.s
+new file mode 100644
+index 000000000..2d5686269
 --- /dev/null
 +++ b/lld/test/COFF/arm-thumb-branch20t-encoding.s
 @@ -0,0 +1,57 @@
@@ -1155,6 +1293,9 @@ carries this file's own hash.  Hash the file you received and compare.
 +    bne.w t600
 +    bne.w t300
 +    bx lr
+diff --git a/lld/test/COFF/arm-thumb-thunks-margin-per-type.s b/lld/test/COFF/arm-thumb-thunks-margin-per-type.s
+new file mode 100644
+index 000000000..dd782e6ab
 --- /dev/null
 +++ b/lld/test/COFF/arm-thumb-thunks-margin-per-type.s
 @@ -0,0 +1,62 @@
@@ -1220,6 +1361,9 @@ carries this file's own hash.  Hash the file you received and compare.
 +    nop
 +.endr
 +    bx lr
+diff --git a/lld/test/COFF/arm-thumb-thunks-no-converge.s b/lld/test/COFF/arm-thumb-thunks-no-converge.s
+new file mode 100644
+index 000000000..0407696a9
 --- /dev/null
 +++ b/lld/test/COFF/arm-thumb-thunks-no-converge.s
 @@ -0,0 +1,28 @@
@@ -1251,6 +1395,9 @@ carries this file's own hash.  Hash the file you received and compare.
 +    .globl far
 +far:
 +    bx lr
+diff --git a/lld/test/COFF/arm-thumb-thunks-same-chunk.s b/lld/test/COFF/arm-thumb-thunks-same-chunk.s
+new file mode 100644
+index 000000000..d873c0ff0
 --- /dev/null
 +++ b/lld/test/COFF/arm-thumb-thunks-same-chunk.s
 @@ -0,0 +1,39 @@
@@ -1293,6 +1440,9 @@ carries this file's own hash.  Hash the file you received and compare.
 +    .globl far_target
 +far_target:
 +    bx lr
+diff --git a/lld/test/COFF/arm64-thunks-same-chunk.s b/lld/test/COFF/arm64-thunks-same-chunk.s
+new file mode 100644
+index 000000000..994e0300d
 --- /dev/null
 +++ b/lld/test/COFF/arm64-thunks-same-chunk.s
 @@ -0,0 +1,34 @@
@@ -1330,6 +1480,202 @@ carries this file's own hash.  Hash the file you received and compare.
 +    .globl far
 +far:
 +    ret
+diff --git a/lld/test/COFF/cgprofile-no-leader.s b/lld/test/COFF/cgprofile-no-leader.s
+new file mode 100644
+index 000000000..9e098af1d
+--- /dev/null
++++ b/lld/test/COFF/cgprofile-no-leader.s
+@@ -0,0 +1,43 @@
++# REQUIRES: x86
++
++## The call graph sort moves only sections that have a leader symbol, that is
++## COMDAT sections. A plain .text section has none, so it keeps its place in
++## the input order even when it is in the call graph. That was the rule while
++## the priorities went through the name-keyed /order table, and it stays the
++## rule now that each section is sorted by its own priority.
++
++# RUN: rm -rf %t && split-file %s %t
++# RUN: llvm-mc -filetype=obj -triple=x86_64-pc-win32 %t/a.s -o %t/a.obj
++# RUN: llvm-mc -filetype=obj -triple=x86_64-pc-win32 %t/b.s -o %t/b.obj
++# RUN: llvm-mc -filetype=obj -triple=x86_64-pc-win32 %t/c.s -o %t/c.obj
++# RUN: lld-link /subsystem:console /entry:main %t/a.obj %t/b.obj %t/c.obj /out:%t/out.exe /debug:symtab
++# RUN: llvm-nm --numeric-sort %t/out.exe | FileCheck %s
++
++## main calls h (weight 100), but main, g and h are in plain .text sections,
++## so they stay in input order: main, g, h.
++# CHECK:      140001000 T main
++# CHECK-NEXT: 140001004 T g
++# CHECK-NEXT: 140001008 T h
++
++#--- a.s
++    .text
++    .globl main
++main:
++    retq
++
++    .cg_profile main, h, 100
++
++#--- b.s
++    .text
++    .globl g
++g:
++    nop
++    nop
++    retq
++
++#--- c.s
++    .text
++    .globl h
++h:
++    nop
++    retq
+diff --git a/lld/test/COFF/cgprofile-same-name.s b/lld/test/COFF/cgprofile-same-name.s
+new file mode 100644
+index 000000000..225e9551f
+--- /dev/null
++++ b/lld/test/COFF/cgprofile-same-name.s
+@@ -0,0 +1,50 @@
++# REQUIRES: x86
++
++## Two static functions named f, each in its own COMDAT section in its own
++## object file, each with its own call graph edge. Each must get its own place
++## in the call graph order. The priorities used to be copied into the
++## name-keyed /order table, so both sections got the priority of whichever was
++## visited last in a pointer-keyed map: which one won changed from link to link,
++## and the layout was wrong either way.
++
++# RUN: rm -rf %t && split-file %s %t
++# RUN: llvm-mc -filetype=obj -triple=x86_64-pc-win32 %t/a.s -o %t/a.obj
++# RUN: llvm-mc -filetype=obj -triple=x86_64-pc-win32 %t/b.s -o %t/b.obj
++# RUN: lld-link /subsystem:console /entry:main %t/a.obj %t/b.obj /out:%t/out.exe /debug:symtab
++# RUN: llvm-nm --numeric-sort %t/out.exe | FileCheck %s
++
++## The call graph sort makes two clusters, main and the f of a.s (weight 100),
++## then g and the f of b.s (weight 10). The two f have different sizes (2 and 3
++## bytes), so the addresses show which f is where. The old priorities could only
++## give "main f f g" or "main g f f".
++# CHECK:      140001000 T main
++# CHECK-NEXT: 140001001 t f
++# CHECK-NEXT: 140001003 T g
++# CHECK-NEXT: 140001004 t f
++
++#--- a.s
++    .section .text,"ax",one_only,main
++    .globl main
++main:
++    retq
++
++    .section .text,"ax",one_only,f
++f:
++    nop
++    retq
++
++    .cg_profile main, f, 100
++
++#--- b.s
++    .section .text,"ax",one_only,g
++    .globl g
++g:
++    retq
++
++    .section .text,"ax",one_only,f
++f:
++    nop
++    nop
++    retq
++
++    .cg_profile g, f, 10
+diff --git a/lld/test/COFF/delayimports-armnt-far-helper.s b/lld/test/COFF/delayimports-armnt-far-helper.s
+new file mode 100644
+index 000000000..b4513c5e0
+--- /dev/null
++++ b/lld/test/COFF/delayimports-armnt-far-helper.s
+@@ -0,0 +1,56 @@
++// REQUIRES: arm
++// RUN: llvm-mc -filetype=obj -triple=thumbv7-windows %s -o %t.obj
++// RUN: lld-link %t.obj %p/Inputs/library.lib /subsystem:console /entry:main \
++// RUN:   /delayload:library.dll /out:%t.exe
++// RUN: llvm-readobj --coff-basereloc %t.exe | FileCheck --check-prefix=BASEREL %s
++// RUN: llvm-objdump --no-print-imm-hex -d %t.exe --start-address=0x150101a \
++// RUN:   --stop-address=0x1501046 | FileCheck --check-prefix=DISASM %s
++
++// The delay-load helper comes from a CRT object, so it can be more than 16 MiB
++// away from the tail-merge chunk, which lld appends to .text after all input
++// code. With LTO all of the LTO code lies in between. The tail merge called the
++// helper with a bl, which reaches +-16 MiB, and synthetic chunks get no range
++// extension thunks, so the link failed with "relocation out of range". It now
++// loads the helper's absolute address (Thumb bit set) into r2 and calls it with
++// blx, and the movw/movt pair gets an ARM_MOV32(T) base relocation.
++
++// The tail merge starts at 0x150101a, just over 17 MiB after
++// __delayLoadHelper2 at 0x40100c. At +22 it loads 0x40100d, the helper with
++// the Thumb bit set.
++// DISASM:      150101a: {{.*}} push.w {r0, r1, r2, r3, r11, lr}
++// DISASM:      1501030: f241 020d movw r2, #4109
++// DISASM-NEXT: 1501034: f2c0 0240 movt r2, #64
++// DISASM-NEXT: 1501038: 4790 blx r2
++
++// Base relocations: right after the entry for the delay-load thunk's movw/movt
++// at 0x110100e come the tail merge's two pairs, at +14 (the delay-import
++// descriptor) and at +22 (the helper).
++// BASEREL:      Address: 0x110100E
++// BASEREL-NEXT: }
++// BASEREL-NEXT: Entry {
++// BASEREL-NEXT: Type: ARM_MOV32(T)
++// BASEREL-NEXT: Address: 0x1101028
++// BASEREL-NEXT: }
++// BASEREL-NEXT: Entry {
++// BASEREL-NEXT: Type: ARM_MOV32(T)
++// BASEREL-NEXT: Address: 0x1101030
++
++    .syntax unified
++    .text
++    .globl main
++    .def main; .scl 2; .type 32; .endef
++main:
++    movw r0, :lower16:__imp_function
++    movt r0, :upper16:__imp_function
++    ldr r0, [r0]
++    bx r0
++
++    .globl __delayLoadHelper2
++    .def __delayLoadHelper2; .scl 2; .type 32; .endef
++__delayLoadHelper2:
++    bx lr
++
++// 17 MiB between the helper and the end of .text: 1 MiB more than a bl can
++// reach, so the test does not depend on the exact size of the code around it.
++    .section .text$z, "xr"
++    .space 0x1100000
+diff --git a/lld/test/COFF/delayimports-armnt.yaml b/lld/test/COFF/delayimports-armnt.yaml
+index ea96d864e..386c7cd22 100644
+--- a/lld/test/COFF/delayimports-armnt.yaml
++++ b/lld/test/COFF/delayimports-armnt.yaml
+@@ -39,8 +39,8 @@
+ # BASEREL-NEXT:     Address: 0x1026
+ # BASEREL-NEXT:   }
+ # BASEREL-NEXT:   Entry {
+-# BASEREL-NEXT:     Type: ABSOLUTE
+-# BASEREL-NEXT:     Address: 0x1000
++# BASEREL-NEXT:     Type: ARM_MOV32(T)
++# BASEREL-NEXT:     Address: 0x102E
+ # BASEREL-NEXT:   }
+ # BASEREL-NEXT:   Entry {
+ # BASEREL-NEXT:     Type: HIGHLOW
+@@ -62,7 +62,9 @@
+ # DISASM-NEXT:               4661            mov     r1, r12
+ # DISASM-NEXT:               f242 0004       movw r0, #8196
+ # DISASM-NEXT:               f2c0 0040       movt    r0, #64
+-# DISASM-NEXT:               f7ff ffe7       bl      0x401000 <.text>
++# DISASM-NEXT:               f241 0201       movw r2, #4097
++# DISASM-NEXT:               f2c0 0240       movt    r2, #64
++# DISASM-NEXT:               4790            blx     r2
+ # DISASM-NEXT:               4684            mov     r12, r0
+ # DISASM-NEXT:               ecbd 0b10       vpop    {d0, d1, d2, d3, d4, d5, d6, d7}
+ # DISASM-NEXT:               e8bd 480f       pop.w   {r0, r1, r2, r3, r11, lr}
+diff --git a/lld/test/COFF/locally-imported-armnt.test b/lld/test/COFF/locally-imported-armnt.test
+new file mode 100644
+index 000000000..9dd036d9b
 --- /dev/null
 +++ b/lld/test/COFF/locally-imported-armnt.test
 @@ -0,0 +1,95 @@
@@ -1428,6 +1774,79 @@ carries this file's own hash.  Hash the file you received and compare.
 +    ComplexType:     IMAGE_SYM_DTYPE_NULL
 +    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
 +...
+diff --git a/lld/test/COFF/lto-reloc-model-arm.ll b/lld/test/COFF/lto-reloc-model-arm.ll
+new file mode 100644
+index 000000000..c751ddbeb
+--- /dev/null
++++ b/lld/test/COFF/lto-reloc-model-arm.ll
+@@ -0,0 +1,65 @@
++; REQUIRES: arm
++
++;; LTO code generation for ARMNT uses the static relocation model, as clang does
++;; for Windows ARM targets. With the PIC model, the stack guard load in a
++;; stack-protected function was a PC-relative movw/movt pair, which COFF cannot
++;; represent, and code generation failed with "Cannot represent this expression".
++
++; RUN: rm -rf %t && split-file %s %t
++; RUN: llvm-as %t/gs.ll -o %t/gs.obj
++; RUN: opt -module-summary %t/gs.ll -o %t/gs.thin.obj
++; RUN: llvm-mc -triple=thumbv7-windows-msvc -filetype=obj %t/crt.s -o %t/crt.obj
++
++;; Regular LTO, then ThinLTO.
++; RUN: lld-link /dll /noentry /export:f /out:%t/gs.dll %t/gs.obj %t/crt.obj
++; RUN: llvm-readobj --coff-basereloc %t/gs.dll | FileCheck %s
++; RUN: lld-link /dll /noentry /export:f /out:%t/gs.thin.dll %t/gs.thin.obj %t/crt.obj
++; RUN: llvm-readobj --coff-basereloc %t/gs.thin.dll | FileCheck %s
++
++;; The static model loads the address of __security_cookie with an absolute
++;; movw/movt pair, which needs an ARM_MOV32(T) base relocation. Those loads are
++;; the only absolute addresses in this DLL, so the first base relocation is one
++;; of them.
++; CHECK:      BaseReloc [
++; CHECK-NEXT:   Entry {
++; CHECK-NEXT:     Type: ARM_MOV32(T)
++
++;--- gs.ll
++target datalayout = "e-m:w-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64"
++target triple = "thumbv7-pc-windows-msvc"
++
++;; sspstrong gives a stack protector to every function with an array on the
++;; stack. The array's address goes to @use, which is defined in crt.s, a native
++;; object that LTO cannot look into, so the optimizer has to keep the whole
++;; array, and with it the protector and its load of __security_cookie. (With
++;; only a volatile store to its first byte, SROA shrank the array to that one
++;; byte, the protector was gone, and the unfixed lld linked it without error.)
++declare void @use(ptr)
++
++define dso_local arm_aapcs_vfpcc void @f() #0 {
++entry:
++  %buf = alloca [16 x i8], align 1
++  call void @use(ptr %buf)
++  ret void
++}
++
++attributes #0 = { sspstrong }
++
++;--- crt.s
++@ What the CRT provides for /GS.
++  .text
++  .globl __security_check_cookie
++  .p2align 1
++__security_check_cookie:
++  bx lr
++
++  .globl use
++  .p2align 1
++use:
++  bx lr
++
++  .data
++  .globl __security_cookie
++  .p2align 2
++__security_cookie:
++  .long 0
+diff --git a/llvm/include/llvm/MC/MCRegisterInfo.h b/llvm/include/llvm/MC/MCRegisterInfo.h
+index 9b894f5b6..573962e7b 100644
 --- a/llvm/include/llvm/MC/MCRegisterInfo.h
 +++ b/llvm/include/llvm/MC/MCRegisterInfo.h
 @@ -25,6 +25,7 @@
@@ -1438,7 +1857,7 @@ carries this file's own hash.  Hash the file you received and compare.
  #include <utility>
  
  namespace llvm {
-@@ -575,9 +576,24 @@
+@@ -575,9 +576,24 @@ public:
    int getSEHRegNum(MCRegister Reg) const;
  
    /// Map a target register to an equivalent CodeView register
@@ -1464,9 +1883,25 @@ carries this file's own hash.  Hash the file you received and compare.
    regclass_iterator regclass_begin() const { return Classes; }
    regclass_iterator regclass_end() const { return Classes+NumClasses; }
    iterator_range<regclass_iterator> regclasses() const {
+diff --git a/llvm/lib/Analysis/GlobalsModRef.cpp b/llvm/lib/Analysis/GlobalsModRef.cpp
+index 1a0ae25b2..6471cc0d5 100644
+--- a/llvm/lib/Analysis/GlobalsModRef.cpp
++++ b/llvm/lib/Analysis/GlobalsModRef.cpp
+@@ -328,7 +328,8 @@ bool GlobalsAAResult::AnalyzeUsesOfPointer(Value *V,
+       if (Readers)
+         Readers->insert(LI->getParent()->getParent());
+     } else if (StoreInst *SI = dyn_cast<StoreInst>(I)) {
+-      if (V == SI->getOperand(1)) {
++      // Check the pointer operand use of the store.
++      if (&U == &SI->getOperandUse(1)) {
+         if (Writers)
+           Writers->insert(SI->getParent()->getParent());
+       } else if (SI->getOperand(1) != OkayStoreDest) {
+diff --git a/llvm/lib/CodeGen/AsmPrinter/CodeViewDebug.cpp b/llvm/lib/CodeGen/AsmPrinter/CodeViewDebug.cpp
+index 193379d71..1ad5ec596 100644
 --- a/llvm/lib/CodeGen/AsmPrinter/CodeViewDebug.cpp
 +++ b/llvm/lib/CodeGen/AsmPrinter/CodeViewDebug.cpp
-@@ -1404,8 +1404,18 @@
+@@ -1404,8 +1404,18 @@ void CodeViewDebug::calculateRanges(
        continue;
      }
  
@@ -1486,9 +1921,55 @@ carries this file's own hash.  Hash the file you received and compare.
      DR.InMemory = !Location->LoadChain.empty();
      DR.DataOffset = 0;
      DR.DerefOffset = LocalVarDef::NoDeref;
+diff --git a/llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp b/llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp
+index 67e16dcb4..478685084 100644
+--- a/llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp
++++ b/llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp
+@@ -3968,6 +3968,16 @@ static SDValue combineOrOfSetCCToUSUBOCarry(SDNode *N, SelectionDAG &DAG,
+                                                     *DAG.getContext(), IntVT)))
+     return SDValue();
+ 
++  // USUBO_CARRY's carry-in must match boolean contents, which the matched
++  // pattern does not guarantee.
++  // TODO: Extend to other boolean contents.
++  if (TLI.getBooleanContents(IntVT) !=
++          TargetLowering::ZeroOrOneBooleanContent ||
++      !DAG.MaskedValueIsZero(
++          CarryIn,
++          APInt::getBitsSetFrom(CarryIn.getScalarValueSizeInBits(), 1)))
++    return SDValue();
++
+   SDLoc DL(N);
+   SDVTList VTs = DAG.getVTList(IntVT, N->getValueType(0));
+   return DAG.getNode(ISD::USUBO_CARRY, DL, VTs, A, B, CarryIn).getValue(1);
+diff --git a/llvm/lib/CodeGen/SelectionDAG/TargetLowering.cpp b/llvm/lib/CodeGen/SelectionDAG/TargetLowering.cpp
+index 2ac0f71a9..8e3d51509 100644
+--- a/llvm/lib/CodeGen/SelectionDAG/TargetLowering.cpp
++++ b/llvm/lib/CodeGen/SelectionDAG/TargetLowering.cpp
+@@ -3403,7 +3403,9 @@ bool TargetLowering::SimplifyDemandedVectorElts(
+             continue;
+           for (unsigned SrcElt = 0; SrcElt != NumSrcElts; ++SrcElt) {
+             unsigned Elt = Scale * SrcElt + SubElt;
+-            if (DemandedElts[Elt])
++            // A wholly-undef source lane is reported as undef below; don't also
++            // flag it as zero, keeping the undef and zero sets disjoint.
++            if (DemandedElts[Elt] && !SrcUndef[SrcElt])
+               KnownZero.setBit(Elt);
+           }
+         }
+@@ -3970,6 +3972,7 @@ bool TargetLowering::SimplifyDemandedVectorElts(
+     break;
+   }
+   }
++
+   assert((KnownUndef & KnownZero) == 0 && "Elements flagged as undef AND zero");
+ 
+   // Constant fold all undef cases.
+diff --git a/llvm/lib/MC/MCRegisterInfo.cpp b/llvm/lib/MC/MCRegisterInfo.cpp
+index 8ac752ab9..b0bf26c59 100644
 --- a/llvm/lib/MC/MCRegisterInfo.cpp
 +++ b/llvm/lib/MC/MCRegisterInfo.cpp
-@@ -198,17 +198,28 @@
+@@ -198,17 +198,28 @@ int MCRegisterInfo::getSEHRegNum(MCRegister Reg) const {
    return I->second;
  }
  
@@ -1521,9 +2002,11 @@ carries this file's own hash.  Hash the file you received and compare.
  bool MCRegisterInfo::regsOverlap(MCRegister RegA, MCRegister RegB) const {
    // Regunits are numerically ordered. Find a common unit.
    auto RangeA = regunits(RegA);
+diff --git a/llvm/lib/Target/ARM/ARM.h b/llvm/lib/Target/ARM/ARM.h
+index 08caef841..eaf71ba84 100644
 --- a/llvm/lib/Target/ARM/ARM.h
 +++ b/llvm/lib/Target/ARM/ARM.h
-@@ -36,6 +36,7 @@
+@@ -36,6 +36,7 @@ Pass *createMVETailPredicationPass();
  FunctionPass *createARMLowOverheadLoopsPass();
  FunctionPass *createARMBlockPlacementPass();
  Pass *createARMParallelDSPPass();
@@ -1531,7 +2014,7 @@ carries this file's own hash.  Hash the file you received and compare.
  FunctionPass *createARMISelDag(ARMBaseTargetMachine &TM,
                                 CodeGenOptLevel OptLevel);
  FunctionPass *createA15SDOptimizerPass();
-@@ -72,6 +73,7 @@
+@@ -72,6 +73,7 @@ void initializeARMFixCortexA57AES1742098Pass(PassRegistry &);
  void initializeARMLoadStoreOptLegacyPass(PassRegistry &);
  void initializeARMLowOverheadLoopsPass(PassRegistry &);
  void initializeARMParallelDSPPass(PassRegistry &);
@@ -1539,9 +2022,11 @@ carries this file's own hash.  Hash the file you received and compare.
  void initializeARMPreAllocLoadStoreOptLegacyPass(PassRegistry &);
  void initializeARMSLSHardeningPass(PassRegistry &);
  void initializeMVEGatherScatterLoweringPass(PassRegistry &);
+diff --git a/llvm/lib/Target/ARM/ARMAsmPrinter.cpp b/llvm/lib/Target/ARM/ARMAsmPrinter.cpp
+index b067c1e60..7ebeb9cc9 100644
 --- a/llvm/lib/Target/ARM/ARMAsmPrinter.cpp
 +++ b/llvm/lib/Target/ARM/ARMAsmPrinter.cpp
-@@ -545,6 +545,12 @@
+@@ -545,6 +545,12 @@ void ARMAsmPrinter::emitStartOfAsmFile(Module &M) {
    if (TT.isOSBinFormatELF())
      emitAttributes();
  
@@ -1554,9 +2039,11 @@ carries this file's own hash.  Hash the file you received and compare.
    // Use the triple's architecture and subarchitecture to determine
    // if we're thumb for the purposes of the top level code16 state.
    if (!M.getModuleInlineAsm().empty() && TT.isThumb())
+diff --git a/llvm/lib/Target/ARM/ARMExpandPseudoInsts.cpp b/llvm/lib/Target/ARM/ARMExpandPseudoInsts.cpp
+index bbbe3a01b..fc73e99e3 100644
 --- a/llvm/lib/Target/ARM/ARMExpandPseudoInsts.cpp
 +++ b/llvm/lib/Target/ARM/ARMExpandPseudoInsts.cpp
-@@ -2258,6 +2258,39 @@
+@@ -2258,6 +2258,39 @@ bool ARMExpandPseudo::ExpandMI(MachineBasicBlock &MBB,
      case ARM::CLEANUPRET:
      case ARM::CATCHRET: {
        unsigned RetOpcode = STI->isThumb() ? ARM::tBX_RET : ARM::BX_RET;
@@ -1596,6 +2083,8 @@ carries this file's own hash.  Hash the file you received and compare.
        BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(RetOpcode))
            .add(predOps(ARMCC::AL));
        MI.eraseFromParent();
+diff --git a/llvm/lib/Target/ARM/ARMFrameLowering.cpp b/llvm/lib/Target/ARM/ARMFrameLowering.cpp
+index 553e4ed6e..9106ecff1 100644
 --- a/llvm/lib/Target/ARM/ARMFrameLowering.cpp
 +++ b/llvm/lib/Target/ARM/ARMFrameLowering.cpp
 @@ -121,6 +121,7 @@
@@ -1619,7 +2108,7 @@ carries this file's own hash.  Hash the file you received and compare.
  #include "llvm/IR/Function.h"
  #include "llvm/IR/Module.h"
  #include "llvm/MC/MCAsmInfo.h"
-@@ -1586,6 +1590,27 @@
+@@ -1586,6 +1590,27 @@ StackOffset ARMFrameLowering::getFrameIndexReference(const MachineFunction &MF,
    return StackOffset::getFixed(ResolveFrameIndexReference(MF, FI, FrameReg, 0));
  }
  
@@ -1647,7 +2136,7 @@ carries this file's own hash.  Hash the file you received and compare.
  StackOffset
  ARMFrameLowering::getNonLocalFrameIndexReference(const MachineFunction &MF,
                                                   int FI) const {
-@@ -1628,6 +1653,19 @@
+@@ -1628,6 +1653,19 @@ int ARMFrameLowering::ResolveFrameIndexReference(const MachineFunction &MF,
      return Offset;
    }
  
@@ -1667,7 +2156,7 @@ carries this file's own hash.  Hash the file you received and compare.
    // If there is a frame pointer, use it when we can.
    if (hasFP(MF) && AFI->hasStackFrame()) {
      // Use frame pointer to reference fixed objects. Use it for locals if
-@@ -2751,6 +2789,19 @@
+@@ -2751,6 +2789,19 @@ void ARMFrameLowering::determineCalleeSaves(MachineFunction &MF,
                                              BitVector &SavedRegs,
                                              RegScavenger *RS) const {
    TargetFrameLowering::determineCalleeSaves(MF, SavedRegs, RS);
@@ -1687,7 +2176,7 @@ carries this file's own hash.  Hash the file you received and compare.
    // This tells PEI to spill the FP as if it is any other callee-save register
    // to take advantage the eliminateFrameIndex machinery. This also ensures it
    // is spilled in the order specified by getCalleeSavedRegs() to make it easier
-@@ -3031,9 +3082,11 @@
+@@ -3031,9 +3082,11 @@ void ARMFrameLowering::determineCalleeSaves(MachineFunction &MF,
      if (HasFP || (isFPReserved(MF) && AFI->getNumAlignedDPRCS2Regs() > 0)) {
        SavedRegs.set(FramePtr);
        // If the frame pointer is required by the ABI, also spill LR so that we
@@ -1701,7 +2190,7 @@ carries this file's own hash.  Hash the file you received and compare.
            !LRSpilled) {
          SavedRegs.set(ARM::LR);
          LRSpilled = true;
-@@ -3324,6 +3377,65 @@
+@@ -3324,6 +3377,65 @@ void ARMFrameLowering::processFunctionBeforeFrameFinalized(
      MachineFunction &MF, RegScavenger *RS) const {
    TargetFrameLowering::processFunctionBeforeFrameFinalized(MF, RS);
    updateLRRestored(MF);
@@ -1767,9 +2256,11 @@ carries this file's own hash.  Hash the file you received and compare.
  }
  
  void ARMFrameLowering::getCalleeSaves(const MachineFunction &MF,
+diff --git a/llvm/lib/Target/ARM/ARMFrameLowering.h b/llvm/lib/Target/ARM/ARMFrameLowering.h
+index 7021af0d9..0de1a3f43 100644
 --- a/llvm/lib/Target/ARM/ARMFrameLowering.h
 +++ b/llvm/lib/Target/ARM/ARMFrameLowering.h
-@@ -55,6 +55,10 @@
+@@ -55,6 +55,10 @@ public:
                                               int FI) const override;
    int ResolveFrameIndexReference(const MachineFunction &MF, int FI,
                                   Register &FrameReg, int SPAdj) const;
@@ -1780,9 +2271,11 @@ carries this file's own hash.  Hash the file you received and compare.
  
    void getCalleeSaves(const MachineFunction &MF,
                        BitVector &SavedRegs) const override;
+diff --git a/llvm/lib/Target/ARM/ARMISelLowering.cpp b/llvm/lib/Target/ARM/ARMISelLowering.cpp
+index 998e09384..caae7cc97 100644
 --- a/llvm/lib/Target/ARM/ARMISelLowering.cpp
 +++ b/llvm/lib/Target/ARM/ARMISelLowering.cpp
-@@ -2199,6 +2199,20 @@
+@@ -2199,6 +2199,20 @@ ARMTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
            DAG.getNode(ISD::TokenFactor, dl, MVT::Other, ByValCopyChains);
    }
  
@@ -1803,7 +2296,7 @@ carries this file's own hash.  Hash the file you received and compare.
    // During a tail call, stores to the argument area must happen after all of
    // the function's incoming arguments have been loaded because they may alias.
    // This is done by folding in a TokenFactor from LowerFormalArguments, but
-@@ -2831,11 +2845,34 @@
+@@ -2831,11 +2845,34 @@ bool ARMTargetLowering::IsEligibleForTailCallOptimization(
      }
    }
  
@@ -1842,7 +2335,7 @@ carries this file's own hash.  Hash the file you received and compare.
      LLVM_DEBUG(dbgs() << "false (arg reg save area)\n");
      return false;
    }
-@@ -4254,6 +4291,13 @@
+@@ -4254,6 +4291,13 @@ SDValue ARMTargetLowering::LowerFormalArguments(
    }
    CCInfo.rewindByValRegsInfo();
  
@@ -1856,7 +2349,7 @@ carries this file's own hash.  Hash the file you received and compare.
    int lastInsIndex = -1;
    if (isVarArg && MFI.hasVAStart()) {
      unsigned RegIdx = CCInfo.getFirstUnallocated(GPRArgRegs);
-@@ -4431,6 +4475,37 @@
+@@ -4431,6 +4475,37 @@ SDValue ARMTargetLowering::LowerFormalArguments(
      }
    }
  
@@ -1894,7 +2387,7 @@ carries this file's own hash.  Hash the file you received and compare.
    unsigned StackArgSize = CCInfo.getStackSize();
    bool TailCallOpt = MF.getTarget().Options.GuaranteedTailCallOpt;
    if (canGuaranteeTCO(CallConv, TailCallOpt)) {
-@@ -5954,6 +6029,26 @@
+@@ -5954,6 +6029,26 @@ SDValue ARMTargetLowering::LowerRETURNADDR(SDValue Op, SelectionDAG &DAG) const{
    return DAG.getCopyFromReg(DAG.getEntryNode(), dl, Reg, VT);
  }
  
@@ -1921,7 +2414,7 @@ carries this file's own hash.  Hash the file you received and compare.
  SDValue ARMTargetLowering::LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const {
    const ARMBaseRegisterInfo &ARI =
      *static_cast<const ARMBaseRegisterInfo*>(RegInfo);
-@@ -10522,6 +10617,7 @@
+@@ -10522,6 +10617,7 @@ SDValue ARMTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const {
    case ISD::FCOPYSIGN:     return LowerFCOPYSIGN(Op, DAG);
    case ISD::RETURNADDR:    return LowerRETURNADDR(Op, DAG);
    case ISD::FRAMEADDR:     return LowerFRAMEADDR(Op, DAG);
@@ -1929,7 +2422,20 @@ carries this file's own hash.  Hash the file you received and compare.
    case ISD::EH_SJLJ_SETJMP: return LowerEH_SJLJ_SETJMP(Op, DAG);
    case ISD::EH_SJLJ_LONGJMP: return LowerEH_SJLJ_LONGJMP(Op, DAG);
    case ISD::EH_SJLJ_SETUP_DISPATCH: return LowerEH_SJLJ_SETUP_DISPATCH(Op, DAG);
-@@ -22269,6 +22365,12 @@
+@@ -12854,10 +12950,10 @@ static SDValue AddCombineTo64BitSMLAL16(SDNode *AddcNode, SDNode *AddeNode,
+ 
+   DAG.ReplaceAllUsesOfValueWith(SDValue(AddcNode, 0), LoMLALResult);
+   DAG.ReplaceAllUsesOfValueWith(SDValue(AddeNode, 0), HiMLALResult);
++  DCI.recursivelyDeleteUnusedNodes(AddeNode);
+ 
+   // Return original node to notify the driver to stop replacing.
+-  SDValue resNode(AddcNode, 0);
+-  return resNode;
++  return SDValue(AddeNode, 0);
+ }
+ 
+ static SDValue AddCombineTo64bitMLAL(SDNode *AddeSubeNode,
+@@ -22269,6 +22365,12 @@ Register ARMTargetLowering::getExceptionSelectorRegister(
    return EM == ExceptionHandling::SjLj ? Register() : ARM::R1;
  }
  
@@ -1942,9 +2448,11 @@ carries this file's own hash.  Hash the file you received and compare.
  void ARMTargetLowering::initializeSplitCSR(MachineBasicBlock *Entry) const {
    // Update IsSplitCSR in ARMFunctionInfo.
    ARMFunctionInfo *AFI = Entry->getParent()->getInfo<ARMFunctionInfo>();
+diff --git a/llvm/lib/Target/ARM/ARMISelLowering.h b/llvm/lib/Target/ARM/ARMISelLowering.h
+index 10f5442d7..f8621c125 100644
 --- a/llvm/lib/Target/ARM/ARMISelLowering.h
 +++ b/llvm/lib/Target/ARM/ARMISelLowering.h
-@@ -359,6 +359,8 @@
+@@ -359,6 +359,8 @@ class VectorType;
      Register
      getExceptionSelectorRegister(const Constant *PersonalityFn) const override;
  
@@ -1953,7 +2461,7 @@ carries this file's own hash.  Hash the file you received and compare.
      Instruction *makeDMB(IRBuilderBase &Builder, ARM_MB::MemBOpt Domain) const;
      Value *emitLoadLinked(IRBuilderBase &Builder, Type *ValueTy, Value *Addr,
                            AtomicOrdering Ord) const override;
-@@ -579,6 +581,7 @@
+@@ -579,6 +581,7 @@ class VectorType;
      SDValue LowerBR_CC(SDValue Op, SelectionDAG &DAG) const;
      SDValue LowerFCOPYSIGN(SDValue Op, SelectionDAG &DAG) const;
      SDValue LowerRETURNADDR(SDValue Op, SelectionDAG &DAG) const;
@@ -1961,6 +2469,142 @@ carries this file's own hash.  Hash the file you received and compare.
      SDValue LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const;
      SDValue LowerShiftRightParts(SDValue Op, SelectionDAG &DAG) const;
      SDValue LowerShiftLeftParts(SDValue Op, SelectionDAG &DAG) const;
+diff --git a/llvm/lib/Target/ARM/ARMLoadStoreOptimizer.cpp b/llvm/lib/Target/ARM/ARMLoadStoreOptimizer.cpp
+index 8cdf2482b..2fe50973e 100644
+--- a/llvm/lib/Target/ARM/ARMLoadStoreOptimizer.cpp
++++ b/llvm/lib/Target/ARM/ARMLoadStoreOptimizer.cpp
+@@ -153,6 +153,8 @@ private:
+   SmallVector<const MergeCandidate *, 4> Candidates;
+   SmallVector<MachineInstr *, 4> MergeBaseCandidates;
+ 
++  MachineBasicBlock::iterator eraseInstr(MachineBasicBlock::iterator MI);
++
+   void moveLiveRegsBefore(const MachineBasicBlock &MBB,
+                           MachineBasicBlock::const_iterator Before);
+   unsigned findFreeReg(const TargetRegisterClass &RegClass);
+@@ -180,7 +182,7 @@ private:
+                            MachineBasicBlock::iterator &MBBI);
+   bool MergeBaseUpdateLoadStore(MachineInstr *MI);
+   bool MergeBaseUpdateLSMultiple(MachineInstr *MI);
+-  bool MergeBaseUpdateLSDouble(MachineInstr &MI) const;
++  bool MergeBaseUpdateLSDouble(MachineInstr &MI);
+   bool LoadStoreMultipleOpti(MachineBasicBlock &MBB);
+   bool MergeReturnIntoLDM(MachineBasicBlock &MBB);
+   bool CombineMovBx(MachineBasicBlock &MBB);
+@@ -585,6 +587,13 @@ void ARMLoadStoreOpt::UpdateBaseRegUses(MachineBasicBlock &MBB,
+   }
+ }
+ 
++MachineBasicBlock::iterator
++ARMLoadStoreOpt::eraseInstr(MachineBasicBlock::iterator MI) {
++  if (LiveRegsValid && LiveRegPos == MI)
++    LiveRegsValid = false;
++  return MI->eraseFromParent();
++}
++
+ /// Return the first register of class \p RegClass that is not in \p Regs.
+ unsigned ARMLoadStoreOpt::findFreeReg(const TargetRegisterClass &RegClass) {
+   if (!RegClassInfoValid) {
+@@ -935,7 +944,7 @@ MachineInstr *ARMLoadStoreOpt::MergeOpsUpdate(const MergeCandidate &Cand) {
+ 
+   // Remove instructions which have been merged.
+   for (MachineInstr *MI : Cand.Instrs)
+-    MBB.erase(MI);
++    eraseInstr(MI);
+ 
+   // Determine range between the earliest removed instruction and the new one.
+   if (EarliestAtBegin)
+@@ -1347,7 +1356,7 @@ bool ARMLoadStoreOpt::MergeBaseUpdateLSMultiple(MachineInstr *MI) {
+   }
+   if (MergeInstr != MBB.end()) {
+     LLVM_DEBUG(dbgs() << "  Erasing old increment: " << *MergeInstr);
+-    MBB.erase(MergeInstr);
++    eraseInstr(MergeInstr);
+   }
+ 
+   unsigned NewOpc = getUpdatingLSMultipleOpcode(Opcode, Mode);
+@@ -1364,7 +1373,7 @@ bool ARMLoadStoreOpt::MergeBaseUpdateLSMultiple(MachineInstr *MI) {
+   MIB.setMemRefs(MI->memoperands());
+ 
+   LLVM_DEBUG(dbgs() << "  Added new load/store: " << *MIB);
+-  MBB.erase(MBBI);
++  eraseInstr(MBBI);
+   return true;
+ }
+ 
+@@ -1521,7 +1530,7 @@ bool ARMLoadStoreOpt::MergeBaseUpdateLoadStore(MachineInstr *MI) {
+     }
+   }
+   LLVM_DEBUG(dbgs() << "  Erasing old increment: " << *MergeInstr);
+-  MBB.erase(MergeInstr);
++  eraseInstr(MergeInstr);
+ 
+   ARM_AM::AddrOpc AddSub = Offset < 0 ? ARM_AM::sub : ARM_AM::add;
+ 
+@@ -1610,12 +1619,12 @@ bool ARMLoadStoreOpt::MergeBaseUpdateLoadStore(MachineInstr *MI) {
+       LLVM_DEBUG(dbgs() << "  Added new instruction: " << *MIB);
+     }
+   }
+-  MBB.erase(MBBI);
++  eraseInstr(MBBI);
+ 
+   return true;
+ }
+ 
+-bool ARMLoadStoreOpt::MergeBaseUpdateLSDouble(MachineInstr &MI) const {
++bool ARMLoadStoreOpt::MergeBaseUpdateLSDouble(MachineInstr &MI) {
+   unsigned Opcode = MI.getOpcode();
+   assert((Opcode == ARM::t2LDRDi8 || Opcode == ARM::t2STRDi8) &&
+          "Must have t2STRDi8 or t2LDRDi8");
+@@ -1651,7 +1660,7 @@ bool ARMLoadStoreOpt::MergeBaseUpdateLSDouble(MachineInstr &MI) const {
+       return false;
+   }
+   LLVM_DEBUG(dbgs() << "  Erasing old increment: " << *MergeInstr);
+-  MBB.erase(MergeInstr);
++  eraseInstr(MergeInstr);
+ 
+   DebugLoc DL = MI.getDebugLoc();
+   MachineInstrBuilder MIB = BuildMI(MBB, MBBI, DL, TII->get(NewOpc));
+@@ -1673,7 +1682,7 @@ bool ARMLoadStoreOpt::MergeBaseUpdateLSDouble(MachineInstr &MI) const {
+   MIB.cloneMemRefs(MI);
+ 
+   LLVM_DEBUG(dbgs() << "  Added new load/store: " << *MIB);
+-  MBB.erase(MBBI);
++  eraseInstr(MBBI);
+   return true;
+ }
+ 
+@@ -1875,7 +1884,7 @@ bool ARMLoadStoreOpt::FixInvalidRegPairOp(MachineBasicBlock &MBB,
+       ++NumSTRD2STR;
+   }
+ 
+-  MBBI = MBB.erase(MBBI);
++  MBBI = eraseInstr(MBBI);
+   return true;
+ }
+ 
+@@ -2068,7 +2077,7 @@ bool ARMLoadStoreOpt::MergeReturnIntoLDM(MachineBasicBlock &MBB) {
+       PrevMI.setDesc(TII->get(NewOpc));
+       MO.setReg(ARM::PC);
+       PrevMI.copyImplicitOps(*MBB.getParent(), *MBBI);
+-      MBB.erase(MBBI);
++      eraseInstr(MBBI);
+       return true;
+     }
+   }
+@@ -2094,8 +2103,8 @@ bool ARMLoadStoreOpt::CombineMovBx(MachineBasicBlock &MBB) {
+           .addReg(Use.getReg(), RegState::Kill)
+           .add(predOps(ARMCC::AL))
+           .copyImplicitOps(*MBBI);
+-      MBB.erase(MBBI);
+-      MBB.erase(Prev);
++      eraseInstr(MBBI);
++      eraseInstr(Prev);
+       return true;
+     }
+ 
+diff --git a/llvm/lib/Target/ARM/ARMMachineFunctionInfo.h b/llvm/lib/Target/ARM/ARMMachineFunctionInfo.h
+index 29dd5fdb6..da93799b7 100644
 --- a/llvm/lib/Target/ARM/ARMMachineFunctionInfo.h
 +++ b/llvm/lib/Target/ARM/ARMMachineFunctionInfo.h
 @@ -15,6 +15,8 @@
@@ -1972,7 +2616,7 @@ carries this file's own hash.  Hash the file you received and compare.
  #include "llvm/CodeGen/MIRYamlMapping.h"
  #include "llvm/CodeGen/MachineFunction.h"
  #include "llvm/IR/GlobalVariable.h"
-@@ -48,6 +50,14 @@
+@@ -48,6 +50,14 @@ class ARMFunctionInfo : public MachineFunctionInfo {
    ///
    unsigned ArgRegsSaveSize = 0;
  
@@ -1987,7 +2631,7 @@ carries this file's own hash.  Hash the file you received and compare.
    /// ReturnRegsCount - Number of registers used up in the return.
    unsigned ReturnRegsCount = 0;
  
-@@ -63,6 +73,11 @@
+@@ -63,6 +73,11 @@ class ARMFunctionInfo : public MachineFunctionInfo {
    /// any reason, so it's legal to emit an ARM::tBfar (i.e. "bl").
    bool LRSpilled = false;
  
@@ -1999,7 +2643,7 @@ carries this file's own hash.  Hash the file you received and compare.
    /// FramePtrSpillOffset - If HasStackFrame, this records the frame pointer
    /// spill stack offset.
    unsigned FramePtrSpillOffset = 0;
-@@ -107,6 +122,12 @@
+@@ -107,6 +122,12 @@ class ARMFunctionInfo : public MachineFunctionInfo {
    /// VarArgsFrameIndex - FrameIndex for start of varargs area.
    int VarArgsFrameIndex = 0;
  
@@ -2012,7 +2656,7 @@ carries this file's own hash.  Hash the file you received and compare.
    /// HasITBlocks - True if IT blocks have been inserted.
    bool HasITBlocks = false;
  
-@@ -179,6 +200,9 @@
+@@ -179,6 +200,9 @@ public:
    unsigned getArgRegsSaveSize() const { return ArgRegsSaveSize; }
    void setArgRegsSaveSize(unsigned s) { ArgRegsSaveSize = s; }
  
@@ -2022,7 +2666,7 @@ carries this file's own hash.  Hash the file you received and compare.
    unsigned getReturnRegsCount() const { return ReturnRegsCount; }
    void setReturnRegsCount(unsigned s) { ReturnRegsCount = s; }
  
-@@ -191,6 +215,13 @@
+@@ -191,6 +215,13 @@ public:
    bool isLRSpilled() const { return LRSpilled; }
    void setLRIsSpilled(bool s) { LRSpilled = s; }
  
@@ -2036,7 +2680,7 @@ carries this file's own hash.  Hash the file you received and compare.
    unsigned getFramePtrSpillOffset() const { return FramePtrSpillOffset; }
    void setFramePtrSpillOffset(unsigned o) { FramePtrSpillOffset = o; }
  
-@@ -251,6 +282,10 @@
+@@ -251,6 +282,10 @@ public:
    int getVarArgsFrameIndex() const { return VarArgsFrameIndex; }
    void setVarArgsFrameIndex(int Index) { VarArgsFrameIndex = Index; }
  
@@ -2047,9 +2691,11 @@ carries this file's own hash.  Hash the file you received and compare.
    bool hasITBlocks() const { return HasITBlocks; }
    void setHasITBlocks(bool h) { HasITBlocks = h; }
  
+diff --git a/llvm/lib/Target/ARM/ARMSubtarget.cpp b/llvm/lib/Target/ARM/ARMSubtarget.cpp
+index 4893d8d3a..27bb399e9 100644
 --- a/llvm/lib/Target/ARM/ARMSubtarget.cpp
 +++ b/llvm/lib/Target/ARM/ARMSubtarget.cpp
-@@ -533,9 +533,11 @@
+@@ -533,9 +533,11 @@ ARMSubtarget::getPushPopSplitVariation(const MachineFunction &MF) const {
  
    // If R7 is the frame pointer, we must split at R7 to ensure that the
    // previous frame pointer (R7) and return address (LR) are adjacent on the
@@ -2063,9 +2709,11 @@ carries this file's own hash.  Hash the file you received and compare.
      return SplitR7;
  
    // Returns SplitR11WindowsSEH when the stack pointer needs to be
+diff --git a/llvm/lib/Target/ARM/ARMTargetMachine.cpp b/llvm/lib/Target/ARM/ARMTargetMachine.cpp
+index 7a91884b9..d21029bdd 100644
 --- a/llvm/lib/Target/ARM/ARMTargetMachine.cpp
 +++ b/llvm/lib/Target/ARM/ARMTargetMachine.cpp
-@@ -97,6 +97,7 @@
+@@ -97,6 +97,7 @@ extern "C" LLVM_ABI LLVM_EXTERNAL_VISIBILITY void LLVMInitializeARMTarget() {
    initializeARMLoadStoreOptLegacyPass(Registry);
    initializeARMPreAllocLoadStoreOptLegacyPass(Registry);
    initializeARMParallelDSPPass(Registry);
@@ -2073,7 +2721,7 @@ carries this file's own hash.  Hash the file you received and compare.
    initializeARMBranchTargetsPass(Registry);
    initializeARMConstantIslandsPass(Registry);
    initializeARMExecutionDomainFixPass(Registry);
-@@ -399,6 +400,11 @@
+@@ -399,6 +400,11 @@ void ARMPassConfig::addCodeGenPrepare() {
  }
  
  bool ARMPassConfig::addPreISel() {
@@ -2085,6 +2733,9 @@ carries this file's own hash.  Hash the file you received and compare.
    if ((TM->getOptLevel() != CodeGenOptLevel::None &&
         EnableGlobalMerge == cl::boolOrDefault::BOU_UNSET) ||
        EnableGlobalMerge == cl::boolOrDefault::BOU_TRUE) {
+diff --git a/llvm/lib/Target/ARM/ARMWinEHFrame.cpp b/llvm/lib/Target/ARM/ARMWinEHFrame.cpp
+new file mode 100644
+index 000000000..f90a58a26
 --- /dev/null
 +++ b/llvm/lib/Target/ARM/ARMWinEHFrame.cpp
 @@ -0,0 +1,161 @@
@@ -2249,9 +2900,32 @@ carries this file's own hash.  Hash the file you received and compare.
 +  F.addFnAttr("no-realign-stack");
 +  return true;
 +}
+diff --git a/llvm/lib/Target/ARM/AsmParser/ARMAsmParser.cpp b/llvm/lib/Target/ARM/AsmParser/ARMAsmParser.cpp
+index fe4872ff4..5d6aaf507 100644
+--- a/llvm/lib/Target/ARM/AsmParser/ARMAsmParser.cpp
++++ b/llvm/lib/Target/ARM/AsmParser/ARMAsmParser.cpp
+@@ -7826,6 +7826,16 @@ bool ARMAsmParser::validateInstruction(MCInst &Inst,
+                          /*Writeback*/ true, MnemonicOpsEndInd))
+       return true;
+     break;
++  case ARM::t2STRi12:
++  case ARM::t2STRi8:
++  case ARM::t2STRs:
++    // STR (immediate) T3 and T4, and STR (register) T2, with Rt == PC are
++    // UNPREDICTABLE. The pre- and post-indexed forms reject PC through their
++    // GPRnopc operand; these take GPR, so check here.
++    if (Inst.getOperand(0).getReg() == ARM::PC)
++      return Error(Operands[MnemonicOpsEndInd]->getStartLoc(),
++                   "operand must be a register in range [r0, r14]");
++    break;
+   case ARM::STR_PRE_IMM:
+   case ARM::STR_PRE_REG:
+   case ARM::t2STR_PRE:
+diff --git a/llvm/lib/Target/ARM/CMakeLists.txt b/llvm/lib/Target/ARM/CMakeLists.txt
+index d99368e1d..e1915ef2e 100644
 --- a/llvm/lib/Target/ARM/CMakeLists.txt
 +++ b/llvm/lib/Target/ARM/CMakeLists.txt
-@@ -57,6 +57,7 @@
+@@ -57,6 +57,7 @@ add_llvm_target(ARMCodeGen
    ARMTargetMachine.cpp
    ARMTargetObjectFile.cpp
    ARMTargetTransformInfo.cpp
@@ -2259,6 +2933,167 @@ carries this file's own hash.  Hash the file you received and compare.
    MLxExpansionPass.cpp
    MVEGatherScatterLowering.cpp
    MVELaneInterleavingPass.cpp
+diff --git a/llvm/lib/Target/ARM/Disassembler/ARMDisassembler.cpp b/llvm/lib/Target/ARM/Disassembler/ARMDisassembler.cpp
+index 2fa07ee61..0b57b6600 100644
+--- a/llvm/lib/Target/ARM/Disassembler/ARMDisassembler.cpp
++++ b/llvm/lib/Target/ARM/Disassembler/ARMDisassembler.cpp
+@@ -6131,6 +6131,26 @@ static DecodeStatus checkDecodedInstruction(MCInst &MI, uint64_t &Size,
+           MI.getOperand(1).getReg() != ARM::SP)
+         return MCDisassembler::SoftFail;
+       return Result;
++    case ARM::t2STRi12:
++    case ARM::t2STRi8:
++    case ARM::t2STRs:
++      // STR (immediate) T3 and T4, and STR (register) T2, with Rt == PC are
++      // UNPREDICTABLE.
++      if (MI.getOperand(0).getReg() == ARM::PC)
++        return MCDisassembler::SoftFail;
++      return Result;
++    case ARM::t2STR_PRE:
++    case ARM::t2STR_POST:
++    case ARM::t2STRB_PRE:
++    case ARM::t2STRB_POST:
++    case ARM::t2STRH_PRE:
++    case ARM::t2STRH_POST:
++      // So are the pre- and post-indexed STR (immediate) T4, and STRB and STRH
++      // (immediate) T3. DecodeT2LdStPre decodes their Rt as a plain GPR, after
++      // the written-back base register, so Rt is operand 1.
++      if (MI.getOperand(1).getReg() == ARM::PC)
++        return MCDisassembler::SoftFail;
++      return Result;
+     default: return Result;
+   }
+ }
+diff --git a/llvm/lib/ToolDrivers/llvm-lib/LibDriver.cpp b/llvm/lib/ToolDrivers/llvm-lib/LibDriver.cpp
+index 15d959d77..51cddebe8 100644
+--- a/llvm/lib/ToolDrivers/llvm-lib/LibDriver.cpp
++++ b/llvm/lib/ToolDrivers/llvm-lib/LibDriver.cpp
+@@ -192,6 +192,7 @@ static Expected<COFF::MachineTypes> getBitcodeFileMachine(MemoryBufferRef MB) {
+   case Triple::x86_64:
+     return COFF::IMAGE_FILE_MACHINE_AMD64;
+   case Triple::arm:
++  case Triple::thumb:
+     return COFF::IMAGE_FILE_MACHINE_ARMNT;
+   case Triple::aarch64:
+     return T.isWindowsArm64EC() ? COFF::IMAGE_FILE_MACHINE_ARM64EC
+diff --git a/llvm/lib/Transforms/InstCombine/InstCombineAndOrXor.cpp b/llvm/lib/Transforms/InstCombine/InstCombineAndOrXor.cpp
+index b6f4a55c0..e6388dcb3 100644
+--- a/llvm/lib/Transforms/InstCombine/InstCombineAndOrXor.cpp
++++ b/llvm/lib/Transforms/InstCombine/InstCombineAndOrXor.cpp
+@@ -5093,6 +5093,12 @@ bool InstCombinerImpl::sinkNotIntoOtherHandOfLogicalOp(Instruction &I) {
+   } else
+     return false;
+ 
++  // If the kept operand is defined as NOT(OpToInvert), freelyInvert(OpToInvert)
++  // will also flip the kept operand as a side effect of updating its uses,
++  // invalidating the assumption that it stays fixed while I is rewriten.
++  if (match(*OpToInvert == Op1 ? Op0 : Op1, m_Not(m_Specific(*OpToInvert))))
++    return false;
++
+   // And can our users be adapted?
+   if (!InstCombiner::canFreelyInvertAllUsersOf(&I, /*IgnoredUser=*/nullptr))
+     return false;
+diff --git a/llvm/lib/Transforms/Instrumentation/CGProfile.cpp b/llvm/lib/Transforms/Instrumentation/CGProfile.cpp
+index 60e7acc77..2cdcadb5f 100644
+--- a/llvm/lib/Transforms/Instrumentation/CGProfile.cpp
++++ b/llvm/lib/Transforms/Instrumentation/CGProfile.cpp
+@@ -53,7 +53,11 @@ static bool runCGProfilePass(Module &M, FunctionAnalysisManager &FAM,
+                           Function *CalledF, uint64_t NewCount) {
+     if (NewCount == 0)
+       return;
+-    if (!CalledF || !TTI.isLoweredToCall(CalledF) ||
++    // Never record an edge to an intrinsic. ARM's TTI reports math intrinsics
++    // (exp2, pow, sin, ...) as lowered to calls, so their declarations reached
++    // the CG profile and .cg_profile named them; on COFF that is an undefined
++    // symbol such as llvm.exp2.f64 at link time.
++    if (!CalledF || CalledF->isIntrinsic() || !TTI.isLoweredToCall(CalledF) ||
+         CalledF->hasDLLImportStorageClass())
+       return;
+     uint64_t &Count = Counts[std::make_pair(F, CalledF)];
+diff --git a/llvm/lib/Transforms/Utils/SimplifyLibCalls.cpp b/llvm/lib/Transforms/Utils/SimplifyLibCalls.cpp
+index b167fabdc..0ea3c3ff1 100644
+--- a/llvm/lib/Transforms/Utils/SimplifyLibCalls.cpp
++++ b/llvm/lib/Transforms/Utils/SimplifyLibCalls.cpp
+@@ -1299,7 +1299,8 @@ Value *LibCallSimplifier::optimizeMemRChr(CallInst *CI, IRBuilderBase &B) {
+   Value *NNeZ = B.CreateICmpNE(Size, ConstantInt::get(SizeTy, 0));
+   // Slice off the sought character's high end bits.
+   CharVal = B.CreateTrunc(CharVal, Int8Ty);
+-  Value *CEqS0 = B.CreateICmpEQ(ConstantInt::get(Int8Ty, Str[0]), CharVal);
++  Value *CEqS0 =
++      B.CreateICmpEQ(ConstantInt::get(Int8Ty, (unsigned char)Str[0]), CharVal);
+   Value *And = B.CreateLogicalAnd(NNeZ, CEqS0);
+   Value *SizeM1 = B.CreateSub(Size, ConstantInt::get(SizeTy, 1));
+   Value *SrcPlus =
+@@ -1390,7 +1391,7 @@ Value *LibCallSimplifier::optimizeMemChr(CallInst *CI, IRBuilderBase &B) {
+     if (Pos != StringRef::npos) {
+       // Handle two consecutive sequences of the same characters.
+       Value *PosVal = ConstantInt::get(SizeTy, Pos);
+-      Value *StrPos = ConstantInt::get(Int8Ty, Str[Pos]);
++      Value *StrPos = ConstantInt::get(Int8Ty, (unsigned char)Str[Pos]);
+       Value *CEqSPos = B.CreateICmpEQ(CharVal, StrPos);
+       Value *NGtPos = B.CreateICmp(ICmpInst::ICMP_UGT, Size, PosVal);
+       Value *And = B.CreateAnd(CEqSPos, NGtPos);
+@@ -1398,7 +1399,7 @@ Value *LibCallSimplifier::optimizeMemChr(CallInst *CI, IRBuilderBase &B) {
+       Sel1 = B.CreateSelect(And, SrcPlus, NullPtr, "memchr.sel1");
+     }
+ 
+-    Value *Str0 = ConstantInt::get(Int8Ty, Str[0]);
++    Value *Str0 = ConstantInt::get(Int8Ty, (unsigned char)Str[0]);
+     Value *CEqS0 = B.CreateICmpEQ(Str0, CharVal);
+     Value *NNeZ = B.CreateICmpNE(Size, ConstantInt::get(SizeTy, 0));
+     Value *And = B.CreateAnd(NNeZ, CEqS0);
+diff --git a/llvm/test/Analysis/GlobalsModRef/self-addresstaken.ll b/llvm/test/Analysis/GlobalsModRef/self-addresstaken.ll
+new file mode 100644
+index 000000000..57fd8259f
+--- /dev/null
++++ b/llvm/test/Analysis/GlobalsModRef/self-addresstaken.ll
+@@ -0,0 +1,16 @@
++; RUN: opt < %s -passes='require<globals-aa>,aa-eval' -print-all-alias-modref-info -disable-output 2>&1 | FileCheck %s
++
++; Ensure @g is correctly marked as address taken when it is stored into itself.
++
++@g = internal global ptr null
++
++; CHECK-LABEL: self_addresstaken
++; CHECK:       MayAlias:	ptr* %p, ptr* @g
++
++define ptr @self_addresstaken() {
++  store ptr @g, ptr @g, align 8
++  %p = load ptr, ptr @g, align 8
++  store ptr null, ptr %p, align 8
++  %q = load ptr, ptr @g, align 8
++  ret ptr %q
++}
+diff --git a/llvm/test/CodeGen/AArch64/cgp-usubo.ll b/llvm/test/CodeGen/AArch64/cgp-usubo.ll
+index f990920e2..450965455 100644
+--- a/llvm/test/CodeGen/AArch64/cgp-usubo.ll
++++ b/llvm/test/CodeGen/AArch64/cgp-usubo.ll
+@@ -321,3 +321,22 @@ end:
+   ret i1 %ov
+ }
+ 
++
++; Negative test: %c is not known to be 0/1 and cannot be a borrow-in.
++; See https://github.com/llvm/llvm-project/issues/222839.
++define i8 @no_subcarry_carry_in_not_bool(i64 %a, i64 %b, i8 %c) nounwind {
++; CHECK-LABEL: no_subcarry_carry_in_not_bool:
++; CHECK:       // %bb.0:
++; CHECK-NEXT:    cmp x0, x1
++; CHECK-NEXT:    cset w8, eq
++; CHECK-NEXT:    and w8, w8, w2
++; CHECK-NEXT:    csinc w0, w8, wzr, hs
++; CHECK-NEXT:    ret
++  %ult = icmp ult i64 %a, %b
++  %ultz = zext i1 %ult to i8
++  %eq = icmp eq i64 %a, %b
++  %eqz = zext i1 %eq to i8
++  %and = and i8 %eqz, %c
++  %or = or i8 %ultz, %and
++  ret i8 %or
++}
+diff --git a/llvm/test/CodeGen/ARM/addressofreturnaddress.ll b/llvm/test/CodeGen/ARM/addressofreturnaddress.ll
+new file mode 100644
+index 000000000..50eb4ea85
 --- /dev/null
 +++ b/llvm/test/CodeGen/ARM/addressofreturnaddress.ll
 @@ -0,0 +1,94 @@
@@ -2356,6 +3191,9 @@ carries this file's own hash.  Hash the file you received and compare.
 +  store volatile i32 %x7, ptr @v
 +  ret void
 +}
+diff --git a/llvm/test/CodeGen/ARM/coff-feat00.ll b/llvm/test/CodeGen/ARM/coff-feat00.ll
+new file mode 100644
+index 000000000..dabb14be1
 --- /dev/null
 +++ b/llvm/test/CodeGen/ARM/coff-feat00.ll
 @@ -0,0 +1,29 @@
@@ -2388,6 +3226,319 @@ carries this file's own hash.  Hash the file you received and compare.
 +
 +!0 = !{i32 2, !"cfguard", i32 2}
 +;cfg: !llvm.module.flags = !{!0}
+diff --git a/llvm/test/CodeGen/ARM/load_store_opt_eraseliveregs.mir b/llvm/test/CodeGen/ARM/load_store_opt_eraseliveregs.mir
+new file mode 100644
+index 000000000..f55ca51c6
+--- /dev/null
++++ b/llvm/test/CodeGen/ARM/load_store_opt_eraseliveregs.mir
+@@ -0,0 +1,39 @@
++# NOTE: Assertions have been autogenerated by utils/update_mir_test_checks.py UTC_ARGS: --version 6
++# RUN: llc -mtriple=armv7-unknown-linux-gnueabihf -run-pass=arm-ldst-opt -verify-machineinstrs %s -o - | FileCheck %s
++
++---
++name:            _Z9broadcastIJLi0ELi1ELi2ELi3ELi4ELi5EEEvP1QPKS0_S3_St16integer_sequenceIiJXspT_EEE
++tracksRegLiveness: true
++noPhis:          true
++noVRegs:         true
++body:             |
++  bb.0:
++    liveins: $r0, $r1, $r2
++
++    ; CHECK-LABEL: name: _Z9broadcastIJLi0ELi1ELi2ELi3ELi4ELi5EEEvP1QPKS0_S3_St16integer_sequenceIiJXspT_EEE
++    ; CHECK: liveins: $r0, $r1, $r2
++    ; CHECK-NEXT: {{  $}}
++    ; CHECK-NEXT: $r3 = ADDri $r2, 64, 14 /* CC::al */, $noreg, $noreg
++    ; CHECK-NEXT: VLDMDIA killed $r3, 14 /* CC::al */, $noreg, def $d17, def $d18, def $d19 :: (load (s64))
++    ; CHECK-NEXT: $r1 = VLDMDIA_UPD $r1, 14 /* CC::al */, $noreg, def $d20, def $d21, def $d22, def $d23 :: (load (s64))
++    ; CHECK-NEXT: $r2 = ADDri killed $r2, 104, 14 /* CC::al */, $noreg, $noreg
++    ; CHECK-NEXT: VLDMDIA killed $r2, 14 /* CC::al */, $noreg, def $d16, def $d17, def $d18 :: (load (s64))
++    ; CHECK-NEXT: VLDMDIA killed $r1, 14 /* CC::al */, $noreg, def $d19, def $d20, def $d21 :: (load (s64))
++    ; CHECK-NEXT: VSTRD killed undef renamable $d18, killed renamable $r0, 0, 14 /* CC::al */, undef $noreg :: (store (s64))
++    ; CHECK-NEXT: BX_RET 14 /* CC::al */, undef $noreg
++    renamable $d17 = VLDRD renamable $r2, 16, 14 /* CC::al */, undef $noreg :: (load (s64))
++    renamable $d18 = VLDRD renamable $r2, 18, 14 /* CC::al */, undef $noreg :: (load (s64))
++    renamable $d19 = VLDRD renamable $r2, 20, 14 /* CC::al */, undef $noreg :: (load (s64))
++    renamable $d20 = VLDRD renamable $r1, 0, 14 /* CC::al */, undef $noreg :: (load (s64))
++    renamable $d21 = VLDRD renamable $r1, 2, 14 /* CC::al */, undef $noreg :: (load (s64))
++    renamable $d22 = VLDRD renamable $r1, 4, 14 /* CC::al */, undef $noreg :: (load (s64))
++    renamable $d23 = VLDRD renamable $r1, 6, 14 /* CC::al */, undef $noreg :: (load (s64))
++    renamable $d16 = VLDRD renamable $r2, 26, 14 /* CC::al */, undef $noreg :: (load (s64))
++    renamable $d17 = VLDRD renamable $r2, 28, 14 /* CC::al */, undef $noreg :: (load (s64))
++    renamable $d18 = VLDRD killed renamable $r2, 30, 14 /* CC::al */, undef $noreg :: (load (s64))
++    renamable $d19 = VLDRD renamable $r1, 8, 14 /* CC::al */, undef $noreg :: (load (s64))
++    renamable $d20 = VLDRD renamable $r1, 10, 14 /* CC::al */, undef $noreg :: (load (s64))
++    renamable $d21 = VLDRD killed renamable $r1, 12, 14 /* CC::al */, undef $noreg :: (load (s64))
++    VSTRD killed undef renamable $d18, killed renamable $r0, 0, 14 /* CC::al */, undef $noreg :: (store (s64))
++    BX_RET 14 /* CC::al */, undef $noreg
++...
+diff --git a/llvm/test/CodeGen/ARM/longMAC-overflow.ll b/llvm/test/CodeGen/ARM/longMAC-overflow.ll
+new file mode 100644
+index 000000000..28a27733a
+--- /dev/null
++++ b/llvm/test/CodeGen/ARM/longMAC-overflow.ll
+@@ -0,0 +1,259 @@
++; NOTE: Assertions have been autogenerated by utils/update_llc_test_checks.py UTC_ARGS: --version 5
++; RUN: llc -mtriple=armv7-eabi %s -o - | FileCheck %s --check-prefix=ARM
++; RUN: llc -mtriple=thumbv7-eabi %s -o - | FileCheck %s --check-prefix=THUMB2
++
++; FIXME: SMLALBB does not set flags, so forming SMLALBB when the ADDE overflow
++; flag is used duplicates the multiply-accumulate (SMULBB+ADDS+ADCS and SMLALBB).
++define { i64, i1 } @saddo_smlalbb(i64 %acc, i16 %a, i16 %b) {
++; ARM-LABEL: saddo_smlalbb:
++; ARM:       @ %bb.0: @ %entry
++; ARM-NEXT:    .save {r4, lr}
++; ARM-NEXT:    push {r4, lr}
++; ARM-NEXT:    smulbb lr, r2, r3
++; ARM-NEXT:    sxth r4, r3
++; ARM-NEXT:    mov r12, r0
++; ARM-NEXT:    sxth r2, r2
++; ARM-NEXT:    mov r3, r1
++; ARM-NEXT:    smlalbb r12, r3, r2, r4
++; ARM-NEXT:    mov r2, #0
++; ARM-NEXT:    adds r0, r0, lr
++; ARM-NEXT:    adcs r0, r1, lr, asr #31
++; ARM-NEXT:    movwvs r2, #1
++; ARM-NEXT:    mov r0, r12
++; ARM-NEXT:    mov r1, r3
++; ARM-NEXT:    pop {r4, pc}
++;
++; THUMB2-LABEL: saddo_smlalbb:
++; THUMB2:       @ %bb.0: @ %entry
++; THUMB2-NEXT:    .save {r4, lr}
++; THUMB2-NEXT:    push {r4, lr}
++; THUMB2-NEXT:    smulbb lr, r2, r3
++; THUMB2-NEXT:    sxth r4, r3
++; THUMB2-NEXT:    mov r12, r0
++; THUMB2-NEXT:    sxth r2, r2
++; THUMB2-NEXT:    mov r3, r1
++; THUMB2-NEXT:    smlalbb r12, r3, r2, r4
++; THUMB2-NEXT:    movs r2, #0
++; THUMB2-NEXT:    adds.w r0, r0, lr
++; THUMB2-NEXT:    adcs.w r0, r1, lr, asr #31
++; THUMB2-NEXT:    it vs
++; THUMB2-NEXT:    movvs r2, #1
++; THUMB2-NEXT:    mov r0, r12
++; THUMB2-NEXT:    mov r1, r3
++; THUMB2-NEXT:    pop {r4, pc}
++entry:
++  %sext.a = sext i16 %a to i32
++  %sext.b = sext i16 %b to i32
++  %mul = mul nsw i32 %sext.a, %sext.b
++  %sext.mul = sext i32 %mul to i64
++  %res = tail call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %acc, i64 %sext.mul)
++  ret { i64, i1 } %res
++}
++
++; FIXME: SMLALBB does not set flags, so forming SMLALBB when the ADDE carry
++; flag is used duplicates the multiply-accumulate (SMULBB+ADDS+ADCS and SMLALBB).
++define { i64, i1 } @uaddo_smlalbb(i64 %acc, i16 %a, i16 %b) {
++; ARM-LABEL: uaddo_smlalbb:
++; ARM:       @ %bb.0: @ %entry
++; ARM-NEXT:    .save {r4, lr}
++; ARM-NEXT:    push {r4, lr}
++; ARM-NEXT:    smulbb lr, r2, r3
++; ARM-NEXT:    sxth r4, r3
++; ARM-NEXT:    mov r12, r0
++; ARM-NEXT:    sxth r2, r2
++; ARM-NEXT:    mov r3, r1
++; ARM-NEXT:    smlalbb r12, r3, r2, r4
++; ARM-NEXT:    mov r2, #0
++; ARM-NEXT:    adds r0, r0, lr
++; ARM-NEXT:    adcs r0, r1, lr, asr #31
++; ARM-NEXT:    adc r2, r2, #0
++; ARM-NEXT:    mov r0, r12
++; ARM-NEXT:    mov r1, r3
++; ARM-NEXT:    pop {r4, pc}
++;
++; THUMB2-LABEL: uaddo_smlalbb:
++; THUMB2:       @ %bb.0: @ %entry
++; THUMB2-NEXT:    .save {r4, lr}
++; THUMB2-NEXT:    push {r4, lr}
++; THUMB2-NEXT:    smulbb lr, r2, r3
++; THUMB2-NEXT:    sxth r4, r3
++; THUMB2-NEXT:    mov r12, r0
++; THUMB2-NEXT:    sxth r2, r2
++; THUMB2-NEXT:    mov r3, r1
++; THUMB2-NEXT:    smlalbb r12, r3, r2, r4
++; THUMB2-NEXT:    movs r2, #0
++; THUMB2-NEXT:    adds.w r0, r0, lr
++; THUMB2-NEXT:    adcs.w r0, r1, lr, asr #31
++; THUMB2-NEXT:    adc r2, r2, #0
++; THUMB2-NEXT:    mov r0, r12
++; THUMB2-NEXT:    mov r1, r3
++; THUMB2-NEXT:    pop {r4, pc}
++entry:
++  %sext.a = sext i16 %a to i32
++  %sext.b = sext i16 %b to i32
++  %mul = mul nsw i32 %sext.a, %sext.b
++  %sext.mul = sext i32 %mul to i64
++  %res = tail call { i64, i1 } @llvm.uadd.with.overflow.i64(i64 %acc, i64 %sext.mul)
++  ret { i64, i1 } %res
++}
++
++; FIXME: SMLAL does not set flags, so forming SMLAL when the ADDE overflow flag
++; is used duplicates the multiply-accumulate (SMULL+ADDS+ADCS and SMLAL).
++define { i64, i1 } @saddo_smlal(i64 %acc, i32 %a, i32 %b) {
++; ARM-LABEL: saddo_smlal:
++; ARM:       @ %bb.0: @ %entry
++; ARM-NEXT:    .save {r4, r5, r11, lr}
++; ARM-NEXT:    push {r4, r5, r11, lr}
++; ARM-NEXT:    smull r4, r5, r2, r3
++; ARM-NEXT:    mov r12, r0
++; ARM-NEXT:    mov lr, r1
++; ARM-NEXT:    smlal r12, lr, r2, r3
++; ARM-NEXT:    mov r2, #0
++; ARM-NEXT:    adds r0, r0, r4
++; ARM-NEXT:    adcs r0, r1, r5
++; ARM-NEXT:    movwvs r2, #1
++; ARM-NEXT:    mov r0, r12
++; ARM-NEXT:    mov r1, lr
++; ARM-NEXT:    pop {r4, r5, r11, pc}
++;
++; THUMB2-LABEL: saddo_smlal:
++; THUMB2:       @ %bb.0: @ %entry
++; THUMB2-NEXT:    .save {r4, r5, r7, lr}
++; THUMB2-NEXT:    push {r4, r5, r7, lr}
++; THUMB2-NEXT:    smull r4, r5, r2, r3
++; THUMB2-NEXT:    mov r12, r0
++; THUMB2-NEXT:    mov lr, r1
++; THUMB2-NEXT:    smlal r12, lr, r2, r3
++; THUMB2-NEXT:    movs r2, #0
++; THUMB2-NEXT:    adds r0, r0, r4
++; THUMB2-NEXT:    adcs.w r0, r1, r5
++; THUMB2-NEXT:    it vs
++; THUMB2-NEXT:    movvs r2, #1
++; THUMB2-NEXT:    mov r0, r12
++; THUMB2-NEXT:    mov r1, lr
++; THUMB2-NEXT:    pop {r4, r5, r7, pc}
++entry:
++  %sext.a = sext i32 %a to i64
++  %sext.b = sext i32 %b to i64
++  %mul = mul nsw i64 %sext.a, %sext.b
++  %res = tail call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %acc, i64 %mul)
++  ret { i64, i1 } %res
++}
++
++; FIXME: UMLAL does not set flags, so forming UMLAL when the ADDE carry flag
++; is used duplicates the multiply-accumulate (UMULL+ADDS+ADCS and UMLAL).
++define { i64, i1 } @uaddo_umlal(i64 %acc, i32 %a, i32 %b) {
++; ARM-LABEL: uaddo_umlal:
++; ARM:       @ %bb.0: @ %entry
++; ARM-NEXT:    .save {r4, r5, r11, lr}
++; ARM-NEXT:    push {r4, r5, r11, lr}
++; ARM-NEXT:    umull r4, r5, r2, r3
++; ARM-NEXT:    mov r12, r0
++; ARM-NEXT:    mov lr, r1
++; ARM-NEXT:    umlal r12, lr, r2, r3
++; ARM-NEXT:    mov r2, #0
++; ARM-NEXT:    adds r0, r0, r4
++; ARM-NEXT:    adcs r0, r1, r5
++; ARM-NEXT:    adc r2, r2, #0
++; ARM-NEXT:    mov r0, r12
++; ARM-NEXT:    mov r1, lr
++; ARM-NEXT:    pop {r4, r5, r11, pc}
++;
++; THUMB2-LABEL: uaddo_umlal:
++; THUMB2:       @ %bb.0: @ %entry
++; THUMB2-NEXT:    .save {r4, r5, r7, lr}
++; THUMB2-NEXT:    push {r4, r5, r7, lr}
++; THUMB2-NEXT:    umull r4, r5, r2, r3
++; THUMB2-NEXT:    mov r12, r0
++; THUMB2-NEXT:    mov lr, r1
++; THUMB2-NEXT:    umlal r12, lr, r2, r3
++; THUMB2-NEXT:    movs r2, #0
++; THUMB2-NEXT:    adds r0, r0, r4
++; THUMB2-NEXT:    adcs.w r0, r1, r5
++; THUMB2-NEXT:    adc r2, r2, #0
++; THUMB2-NEXT:    mov r0, r12
++; THUMB2-NEXT:    mov r1, lr
++; THUMB2-NEXT:    pop {r4, r5, r7, pc}
++entry:
++  %zext.a = zext i32 %a to i64
++  %zext.b = zext i32 %b to i64
++  %mul = mul nuw i64 %zext.a, %zext.b
++  %res = tail call { i64, i1 } @llvm.uadd.with.overflow.i64(i64 %acc, i64 %mul)
++  ret { i64, i1 } %res
++}
++
++define { i64, i1 } @ssubo_smlal(i64 %acc, i32 %a, i32 %b) {
++; ARM-LABEL: ssubo_smlal:
++; ARM:       @ %bb.0: @ %entry
++; ARM-NEXT:    smull r3, r12, r2, r3
++; ARM-NEXT:    mov r2, #0
++; ARM-NEXT:    subs r0, r0, r3
++; ARM-NEXT:    sbcs r1, r1, r12
++; ARM-NEXT:    movwvs r2, #1
++; ARM-NEXT:    bx lr
++;
++; THUMB2-LABEL: ssubo_smlal:
++; THUMB2:       @ %bb.0: @ %entry
++; THUMB2-NEXT:    smull r3, r12, r2, r3
++; THUMB2-NEXT:    movs r2, #0
++; THUMB2-NEXT:    subs r0, r0, r3
++; THUMB2-NEXT:    sbcs.w r1, r1, r12
++; THUMB2-NEXT:    it vs
++; THUMB2-NEXT:    movvs r2, #1
++; THUMB2-NEXT:    bx lr
++entry:
++  %sext.a = sext i32 %a to i64
++  %sext.b = sext i32 %b to i64
++  %mul = mul nsw i64 %sext.a, %sext.b
++  %res = tail call { i64, i1 } @llvm.ssub.with.overflow.i64(i64 %acc, i64 %mul)
++  ret { i64, i1 } %res
++}
++
++; FIXME: UMAAL does not set flags, so forming UMAAL when the ADDE carry flag
++; is used duplicates the multiply-accumulate.
++define { i64, i1 } @uaddo_umaal(i32 %a, i32 %b, i32 %lo, i32 %hi) {
++; ARM-LABEL: uaddo_umaal:
++; ARM:       @ %bb.0: @ %entry
++; ARM-NEXT:    .save {r4, r5, r11, lr}
++; ARM-NEXT:    push {r4, r5, r11, lr}
++; ARM-NEXT:    mov lr, r2
++; ARM-NEXT:    mov r4, #0
++; ARM-NEXT:    mov r5, lr
++; ARM-NEXT:    mov r12, r3
++; ARM-NEXT:    umlal r5, r4, r0, r1
++; ARM-NEXT:    mov r2, #0
++; ARM-NEXT:    umaal lr, r12, r0, r1
++; ARM-NEXT:    adds r0, r5, r3
++; ARM-NEXT:    adcs r0, r4, #0
++; ARM-NEXT:    adc r2, r2, #0
++; ARM-NEXT:    mov r0, lr
++; ARM-NEXT:    mov r1, r12
++; ARM-NEXT:    pop {r4, r5, r11, pc}
++;
++; THUMB2-LABEL: uaddo_umaal:
++; THUMB2:       @ %bb.0: @ %entry
++; THUMB2-NEXT:    .save {r4, r5, r7, lr}
++; THUMB2-NEXT:    push {r4, r5, r7, lr}
++; THUMB2-NEXT:    mov lr, r2
++; THUMB2-NEXT:    movs r4, #0
++; THUMB2-NEXT:    mov r5, lr
++; THUMB2-NEXT:    mov r12, r3
++; THUMB2-NEXT:    umlal r5, r4, r0, r1
++; THUMB2-NEXT:    movs r2, #0
++; THUMB2-NEXT:    umaal lr, r12, r0, r1
++; THUMB2-NEXT:    adds r0, r5, r3
++; THUMB2-NEXT:    adcs r0, r4, #0
++; THUMB2-NEXT:    adc r2, r2, #0
++; THUMB2-NEXT:    mov r0, lr
++; THUMB2-NEXT:    mov r1, r12
++; THUMB2-NEXT:    pop {r4, r5, r7, pc}
++entry:
++  %zext.a = zext i32 %a to i64
++  %zext.b = zext i32 %b to i64
++  %mul = mul nuw i64 %zext.a, %zext.b
++  %zext.lo = zext i32 %lo to i64
++  %add = add nuw i64 %mul, %zext.lo
++  %zext.hi = zext i32 %hi to i64
++  %res = tail call { i64, i1 } @llvm.uadd.with.overflow.i64(i64 %add, i64 %zext.hi)
++  ret { i64, i1 } %res
++}
+diff --git a/llvm/test/CodeGen/ARM/musttail-varargs-forward-thisadjust.ll b/llvm/test/CodeGen/ARM/musttail-varargs-forward-thisadjust.ll
+new file mode 100644
+index 000000000..a835edb29
 --- /dev/null
 +++ b/llvm/test/CodeGen/ARM/musttail-varargs-forward-thisadjust.ll
 @@ -0,0 +1,89 @@
@@ -2480,6 +3631,9 @@ carries this file's own hash.  Hash the file you received and compare.
 +  musttail call arm_aapcs_vfpcc void @adjusted_target_nv(ptr %adj, i32 %a, i32 %b, i32 %c)
 +  ret void
 +}
+diff --git a/llvm/test/CodeGen/ARM/musttail-varargs-forward.ll b/llvm/test/CodeGen/ARM/musttail-varargs-forward.ll
+new file mode 100644
+index 000000000..6d8faa423
 --- /dev/null
 +++ b/llvm/test/CodeGen/ARM/musttail-varargs-forward.ll
 @@ -0,0 +1,110 @@
@@ -2593,6 +3747,9 @@ carries this file's own hash.  Hash the file you received and compare.
 +  musttail call arm_aapcs_vfpcc void %fn(ptr %this, i32 %a, i32 %b, i32 %c)
 +  ret void
 +}
+diff --git a/llvm/test/CodeGen/ARM/musttail-varargs-vastart.ll b/llvm/test/CodeGen/ARM/musttail-varargs-vastart.ll
+new file mode 100644
+index 000000000..f6e8bbfb0
 --- /dev/null
 +++ b/llvm/test/CodeGen/ARM/musttail-varargs-vastart.ll
 @@ -0,0 +1,206 @@
@@ -2802,6 +3959,9 @@ carries this file's own hash.  Hash the file you received and compare.
 +}
 +
 +; FATAL: LLVM ERROR: failed to perform tail call elimination on a call site marked musttail
+diff --git a/llvm/test/CodeGen/ARM/wineh-cxx-eh-align-catchobj.ll b/llvm/test/CodeGen/ARM/wineh-cxx-eh-align-catchobj.ll
+new file mode 100644
+index 000000000..48e5d849e
 --- /dev/null
 +++ b/llvm/test/CodeGen/ARM/wineh-cxx-eh-align-catchobj.ll
 @@ -0,0 +1,48 @@
@@ -2853,6 +4013,9 @@ carries this file's own hash.  Hash the file you received and compare.
 +  call void @use(ptr null) [ "funclet"(token %p) ]
 +  cleanupret from %p unwind to caller
 +}
+diff --git a/llvm/test/CodeGen/ARM/wineh-cxx-eh-align.ll b/llvm/test/CodeGen/ARM/wineh-cxx-eh-align.ll
+new file mode 100644
+index 000000000..015c260dd
 --- /dev/null
 +++ b/llvm/test/CodeGen/ARM/wineh-cxx-eh-align.ll
 @@ -0,0 +1,82 @@
@@ -2938,6 +4101,9 @@ carries this file's own hash.  Hash the file you received and compare.
 +  call void @use(ptr %buf) [ "funclet"(token %p) ]
 +  cleanupret from %p unwind to caller
 +}
+diff --git a/llvm/test/CodeGen/ARM/wineh-cxx-eh.ll b/llvm/test/CodeGen/ARM/wineh-cxx-eh.ll
+new file mode 100644
+index 000000000..284dd2108
 --- /dev/null
 +++ b/llvm/test/CodeGen/ARM/wineh-cxx-eh.ll
 @@ -0,0 +1,172 @@
@@ -3113,6 +4279,8 @@ carries this file's own hash.  Hash the file you received and compare.
 +  %r = load volatile i32, ptr %local, align 4
 +  ret i32 %r
 +}
+diff --git a/llvm/test/CodeGen/ARM/wineh-dtor.ll b/llvm/test/CodeGen/ARM/wineh-dtor.ll
+index be6ee0b96..f2c7a5949 100644
 --- a/llvm/test/CodeGen/ARM/wineh-dtor.ll
 +++ b/llvm/test/CodeGen/ARM/wineh-dtor.ll
 @@ -13,21 +13,44 @@
@@ -3170,7 +4338,7 @@ carries this file's own hash.  Hash the file you received and compare.
  
    %aligned = alloca i32, align 64
    invoke arm_aapcs_vfpcc void %1()
-@@ -40,16 +63,6 @@
+@@ -40,16 +63,6 @@ invoke.cont:                                      ; preds = %entry
  
  ehcleanup:                                        ; preds = %entry
    %cp = cleanuppad within none []
@@ -3187,6 +4355,8 @@ carries this file's own hash.  Hash the file you received and compare.
  
    %gep.unwind = getelementptr inbounds i8, ptr %0, i32 44
    call arm_aapcs_vfpcc void @g(ptr noundef nonnull %gep.unwind, ptr noundef nonnull %aligned) [ "funclet"(token %cp) ]
+diff --git a/llvm/test/CodeGen/ARM/wineh-try-catch-stack-args.ll b/llvm/test/CodeGen/ARM/wineh-try-catch-stack-args.ll
+index d689956a5..43e912a5a 100644
 --- a/llvm/test/CodeGen/ARM/wineh-try-catch-stack-args.ll
 +++ b/llvm/test/CodeGen/ARM/wineh-try-catch-stack-args.ll
 @@ -1,11 +1,37 @@
@@ -3234,6 +4404,137 @@ carries this file's own hash.  Hash the file you received and compare.
  
  ; C++ source:
  ; struct X { int x[100]; };
+diff --git a/llvm/test/CodeGen/PowerPC/pr229620.ll b/llvm/test/CodeGen/PowerPC/pr229620.ll
+new file mode 100644
+index 000000000..2dc962349
+--- /dev/null
++++ b/llvm/test/CodeGen/PowerPC/pr229620.ll
+@@ -0,0 +1,24 @@
++; NOTE: Assertions have been autogenerated by utils/update_llc_test_checks.py UTC_ARGS: --version 6
++; RUN: llc -mtriple=powerpc64le-unknown-linux-gnu -mcpu=pwr10 < %s | FileCheck %s
++
++;; SimplifyDemandedVectorElts must not report a bitcast lane as both undef and
++;; zero when its whole source lane is undef.
++
++define <8 x i32> @bitcast_undef_lane(<6 x i32> %x) {
++; CHECK-LABEL: bitcast_undef_lane:
++; CHECK:       # %bb.0:
++; CHECK-NEXT:    mtfprwz 0, 7
++; CHECK-NEXT:    mtfprwz 1, 8
++; CHECK-NEXT:    xxspltiw 35, 8384513
++; CHECK-NEXT:    xxmrghw 34, 1, 0
++; CHECK-NEXT:    vsubuwm 2, 3, 2
++; CHECK-NEXT:    vpkudum 3, 2, 2
++; CHECK-NEXT:    xxmrglw 34, 34, 34
++; CHECK-NEXT:    xxlor 35, 35, 34
++; CHECK-NEXT:    blr
++  %sub = sub nuw <6 x i32> splat (i32 8384513), %x
++  %s0 = shufflevector <6 x i32> %sub, <6 x i32> zeroinitializer, <8 x i32> <i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 4, i32 poison>
++  %s1 = shufflevector <6 x i32> %sub, <6 x i32> zeroinitializer, <8 x i32> <i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 poison, i32 5, i32 poison>
++  %or = or <8 x i32> %s0, %s1
++  ret <8 x i32> %or
++}
+diff --git a/llvm/test/CodeGen/X86/subcarry.ll b/llvm/test/CodeGen/X86/subcarry.ll
+index cd361babf..b53a206b1 100644
+--- a/llvm/test/CodeGen/X86/subcarry.ll
++++ b/llvm/test/CodeGen/X86/subcarry.ll
+@@ -1607,3 +1607,93 @@ define <4 x i1> @no_subcarry_vector(<4 x i32> %x0, <4 x i32> %x1, <4 x i32> %y0,
+   ret <4 x i1> %br
+ }
+ 
++; Negative test: %c is not known to be 0/1 and cannot be a borrow-in.
++; See https://github.com/llvm/llvm-project/issues/222839.
++define i8 @no_subcarry_carry_in_not_bool(i64 %a, i64 %b, i8 %c) nounwind {
++; X64-LABEL: no_subcarry_carry_in_not_bool:
++; X64:       # %bb.0:
++; X64-NEXT:    cmpq %rsi, %rdi
++; X64-NEXT:    setb %cl
++; X64-NEXT:    sete %al
++; X64-NEXT:    andb %dl, %al
++; X64-NEXT:    orb %cl, %al
++; X64-NEXT:    retq
++;
++; X86-LABEL: no_subcarry_carry_in_not_bool:
++; X86:       # %bb.0:
++; X86-NEXT:    pushl %ebx
++; X86-NEXT:    pushl %edi
++; X86-NEXT:    pushl %esi
++; X86-NEXT:    movl 24(%esp), %eax
++; X86-NEXT:    movl 28(%esp), %ecx
++; X86-NEXT:    movl 16(%esp), %edx
++; X86-NEXT:    movl 20(%esp), %esi
++; X86-NEXT:    cmpl %eax, %edx
++; X86-NEXT:    movl %esi, %edi
++; X86-NEXT:    sbbl %ecx, %edi
++; X86-NEXT:    setb %bl
++; X86-NEXT:    xorl %ecx, %esi
++; X86-NEXT:    xorl %eax, %edx
++; X86-NEXT:    orl %esi, %edx
++; X86-NEXT:    sete %al
++; X86-NEXT:    andb 32(%esp), %al
++; X86-NEXT:    orb %bl, %al
++; X86-NEXT:    popl %esi
++; X86-NEXT:    popl %edi
++; X86-NEXT:    popl %ebx
++; X86-NEXT:    retl
++  %ult = icmp ult i64 %a, %b
++  %ultz = zext i1 %ult to i8
++  %eq = icmp eq i64 %a, %b
++  %eqz = zext i1 %eq to i8
++  %and = and i8 %eqz, %c
++  %or = or i8 %ultz, %and
++  ret i8 %or
++}
++
++; %c is known to be 0/1 here, so the borrow chain is still rebuilt. Deliberately
++; not an i1 carry: that would pass the check trivially and would not catch a
++; regression to a structural test for the carry-in.
++define i8 @subcarry_carry_in_known_bool(i64 %a, i64 %b, i8 %c) nounwind {
++; X64-LABEL: subcarry_carry_in_known_bool:
++; X64:       # %bb.0:
++; X64-NEXT:    shrb $7, %dl
++; X64-NEXT:    addb $-1, %dl
++; X64-NEXT:    sbbq %rsi, %rdi
++; X64-NEXT:    setb %al
++; X64-NEXT:    retq
++;
++; X86-LABEL: subcarry_carry_in_known_bool:
++; X86:       # %bb.0:
++; X86-NEXT:    pushl %ebx
++; X86-NEXT:    pushl %edi
++; X86-NEXT:    pushl %esi
++; X86-NEXT:    movl 24(%esp), %eax
++; X86-NEXT:    movl 28(%esp), %ecx
++; X86-NEXT:    movl 16(%esp), %edx
++; X86-NEXT:    movl 20(%esp), %esi
++; X86-NEXT:    movzbl 32(%esp), %ebx
++; X86-NEXT:    shrb $7, %bl
++; X86-NEXT:    cmpl %eax, %edx
++; X86-NEXT:    movl %esi, %edi
++; X86-NEXT:    sbbl %ecx, %edi
++; X86-NEXT:    setb %bh
++; X86-NEXT:    xorl %ecx, %esi
++; X86-NEXT:    xorl %eax, %edx
++; X86-NEXT:    orl %esi, %edx
++; X86-NEXT:    sete %al
++; X86-NEXT:    andb %bl, %al
++; X86-NEXT:    orb %bh, %al
++; X86-NEXT:    popl %esi
++; X86-NEXT:    popl %edi
++; X86-NEXT:    popl %ebx
++; X86-NEXT:    retl
++  %cin = lshr i8 %c, 7
++  %ult = icmp ult i64 %a, %b
++  %ultz = zext i1 %ult to i8
++  %eq = icmp eq i64 %a, %b
++  %eqz = zext i1 %eq to i8
++  %and = and i8 %eqz, %cin
++  %or = or i8 %ultz, %and
++  ret i8 %or
++}
+diff --git a/llvm/test/DebugInfo/COFF/ARMNT/codeview-d-pair-register.mir b/llvm/test/DebugInfo/COFF/ARMNT/codeview-d-pair-register.mir
+new file mode 100644
+index 000000000..f854e7877
 --- /dev/null
 +++ b/llvm/test/DebugInfo/COFF/ARMNT/codeview-d-pair-register.mir
 @@ -0,0 +1,141 @@
@@ -3378,3 +4679,372 @@ carries this file's own hash.  Hash the file you received and compare.
 +    VST1q16 killed $r1, 0, $q1, 14 /* CC::al */, $noreg, implicit killed $d1_d2_d3, debug-location !43 :: (store (s128) into %ir.1, align 2)
 +    tBX_RET 14 /* CC::al */, $noreg, debug-location !47
 +...
+diff --git a/llvm/test/Instrumentation/cgprofile-intrinsics.ll b/llvm/test/Instrumentation/cgprofile-intrinsics.ll
+new file mode 100644
+index 000000000..195914e69
+--- /dev/null
++++ b/llvm/test/Instrumentation/cgprofile-intrinsics.ll
+@@ -0,0 +1,37 @@
++; REQUIRES: arm-registered-target
++; RUN: opt < %s -passes=cg-profile -S | FileCheck %s
++
++;; A call to an intrinsic is not an edge of the call graph profile. ARM's TTI
++;; reports math intrinsics such as llvm.exp2.f64 as lowered to calls, so the
++;; edge reached the CG Profile, and on COFF the .cg_profile section then named
++;; llvm.exp2.f64, an undefined symbol at link time. ARM's TTI says the same for
++;; the other libm intrinsics (pow, powi, sin, ...) and, without MVE, for the
++;; masked loads and stores, so the test calls several of them.
++
++target datalayout = "e-m:w-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64"
++target triple = "thumbv7-pc-windows-msvc"
++
++declare double @llvm.exp2.f64(double)
++declare double @llvm.pow.f64(double, double)
++declare double @llvm.powi.f64.i32(double, i32)
++declare <4 x i32> @llvm.masked.load.v4i32.p0(ptr, <4 x i1>, <4 x i32>)
++declare void @g()
++
++define double @f(double %x, i32 %n, ptr %p, <4 x i1> %m, ptr %q) !prof !0 {
++  call void @g()
++  %a = call double @llvm.exp2.f64(double %x)
++  %b = call double @llvm.pow.f64(double %a, double %x)
++  %c = call double @llvm.powi.f64.i32(double %b, i32 %n)
++  %v = call <4 x i32> @llvm.masked.load.v4i32.p0(ptr align 4 %p, <4 x i1> %m, <4 x i32> zeroinitializer)
++  store <4 x i32> %v, ptr %q
++  ret double %c
++}
++
++!0 = !{!"function_entry_count", i64 100}
++
++;; The profile has exactly one edge, the one to @g.
++; CHECK: !llvm.module.flags = !{![[CGPROF:[0-9]+]]}
++; CHECK: ![[CGPROF]] = !{i32 5, !"CG Profile", ![[EDGES:[0-9]+]]}
++; CHECK: ![[EDGES]] = distinct !{![[E0:[0-9]+]]}
++; CHECK: ![[E0]] = !{ptr @f, ptr @g, i64 100}
++; CHECK-NOT: llvm.
+diff --git a/llvm/test/MC/ARM/basic-thumb2-instructions.s b/llvm/test/MC/ARM/basic-thumb2-instructions.s
+index 61ebb19aa..b31b2a115 100644
+--- a/llvm/test/MC/ARM/basic-thumb2-instructions.s
++++ b/llvm/test/MC/ARM/basic-thumb2-instructions.s
+@@ -3067,7 +3067,6 @@ adds sp, #-4096
+         str r5, [r6, #32]
+         str r5, [r6, #33]
+         str r5, [r6, #257]
+-        str.w pc, [r7, #257]
+         str r2, [r4, #255]!
+         str r8, [sp, #4]!
+         str lr, [sp, #-4]!
+@@ -3079,7 +3078,6 @@ adds sp, #-4096
+ @ CHECK: str	r5, [r6, #32]           @ encoding: [0x35,0x62]
+ @ CHECK: str.w	r5, [r6, #33]           @ encoding: [0xc6,0xf8,0x21,0x50]
+ @ CHECK: str.w	r5, [r6, #257]          @ encoding: [0xc6,0xf8,0x01,0x51]
+-@ CHECK: str.w	pc, [r7, #257]          @ encoding: [0xc7,0xf8,0x01,0xf1]
+ @ CHECK: str	r2, [r4, #255]!         @ encoding: [0x44,0xf8,0xff,0x2f]
+ @ CHECK: str	r8, [sp, #4]!           @ encoding: [0x4d,0xf8,0x04,0x8f]
+ @ CHECK: str	lr, [sp, #-4]!          @ encoding: [0x4d,0xf8,0x04,0xed]
+diff --git a/llvm/test/MC/ARM/thumb2-str-pc.s b/llvm/test/MC/ARM/thumb2-str-pc.s
+new file mode 100644
+index 000000000..c04455b46
+--- /dev/null
++++ b/llvm/test/MC/ARM/thumb2-str-pc.s
+@@ -0,0 +1,40 @@
++@ RUN: rm -rf %t && split-file %s %t
++@ RUN: not llvm-mc -triple=thumbv7 -show-encoding < %t/pc.s 2>&1 | \
++@ RUN:   FileCheck %s --check-prefix=ERR --implicit-check-not=encoding
++@ RUN: not llvm-mc -triple=thumbv7-pc-windows-msvc -show-encoding < %t/pc.s 2>&1 | \
++@ RUN:   FileCheck %s --check-prefix=ERR --implicit-check-not=encoding
++@ RUN: llvm-mc -triple=thumbv7 -show-encoding < %t/ok.s | FileCheck %s --check-prefix=OK
++
++@ STR (immediate) T3 and T4, and STR (register) T2, with Rt = PC are
++@ UNPREDICTABLE. The pre- and post-indexed forms were already rejected, but
++@ these were assembled without a diagnostic. SP and LR stay allowed. The last
++@ line of pc.s was a valid instruction in basic-thumb2-instructions.s.
++
++@ Every line of pc.s is rejected because of its Rt. Whether that reason is the
++@ error itself or a note under "invalid instruction" depends on the triple:
++@ thumbv7 can also offer the ARM-mode form, a Windows triple cannot.
++@ ERR: <stdin>:1:{{[0-9]+}}: {{error|note}}: operand must be a register in range [r0, r14]
++@ ERR: <stdin>:2:{{[0-9]+}}: {{error|note}}: operand must be a register in range [r0, r14]
++@ ERR: <stdin>:3:{{[0-9]+}}: {{error|note}}: operand must be a register in range [r0, r14]
++@ ERR: <stdin>:4:{{[0-9]+}}: {{error|note}}: operand must be a register in range [r0, r14]
++@ ERR: <stdin>:5:{{[0-9]+}}: {{error|note}}: operand must be a register in range [r0, r14]
++@ ERR: <stdin>:6:{{[0-9]+}}: {{error|note}}: operand must be a register in range [r0, r14]
++
++@ OK: str.w sp, [r0, #4]                 @ encoding: [0xc0,0xf8,0x04,0xd0]
++@ OK: str.w lr, [sp, #60]                @ encoding: [0xcd,0xf8,0x3c,0xe0]
++@ OK: str sp, [r0, #-4]                  @ encoding: [0x40,0xf8,0x04,0xdc]
++@ OK: str.w sp, [r0, r1]                 @ encoding: [0x40,0xf8,0x01,0xd0]
++
++@--- pc.s
++        str.w pc, [sp, #60]
++        str pc, [r0, #-4]
++        str.w pc, [r0, r1]
++        str pc, [r0, #4095]
++        str pc, [r0, r1, lsl #2]
++        str.w pc, [r7, #257]
++
++@--- ok.s
++        str.w sp, [r0, #4]
++        str.w lr, [sp, #60]
++        str sp, [r0, #-4]
++        str.w sp, [r0, r1]
+diff --git a/llvm/test/MC/Disassembler/ARM/thumb2-str-pc.txt b/llvm/test/MC/Disassembler/ARM/thumb2-str-pc.txt
+new file mode 100644
+index 000000000..2a80b2d2b
+--- /dev/null
++++ b/llvm/test/MC/Disassembler/ARM/thumb2-str-pc.txt
+@@ -0,0 +1,84 @@
++# RUN: llvm-mc -triple=thumbv7 -disassemble %s 2>&1 | FileCheck %s
++# RUN: llvm-mc -triple=thumbv7-pc-windows-msvc -disassemble %s 2>&1 | FileCheck %s
++# RUN: llvm-mc -triple=thumbv8 -disassemble %s 2>&1 | FileCheck %s
++# RUN: llvm-mc -triple=thumbv7m -disassemble %s 2>&1 | FileCheck %s
++
++# STR (immediate) T3 and T4, and STR (register) T2, with Rt = PC are
++# UNPREDICTABLE, and so are the pre- and post-indexed STRB and STRH
++# (immediate) T3, so they decode with a warning. SP and LR stay defined, and
++# so does a pre-indexed load to PC.
++
++# str.w pc, [sp, #60]
++0xcd 0xf8 0x3c 0xf0
++#      CHECK: warning: potentially undefined instruction encoding
++# CHECK-NEXT: 0xcd 0xf8 0x3c 0xf0
++
++# str pc, [r0, #-4]
++0x40 0xf8 0x04 0xfc
++#      CHECK: warning: potentially undefined instruction encoding
++# CHECK-NEXT: 0x40 0xf8 0x04 0xfc
++
++# str.w pc, [r0, r1]
++0x40 0xf8 0x01 0xf0
++#      CHECK: warning: potentially undefined instruction encoding
++# CHECK-NEXT: 0x40 0xf8 0x01 0xf0
++
++# str.w pc, [r0, r1, lsl #3]
++0x40 0xf8 0x31 0xf0
++#      CHECK: warning: potentially undefined instruction encoding
++# CHECK-NEXT: 0x40 0xf8 0x31 0xf0
++
++# str pc, [r0, #4]!
++0x40 0xf8 0x04 0xff
++#      CHECK: warning: potentially undefined instruction encoding
++# CHECK-NEXT: 0x40 0xf8 0x04 0xff
++
++# str pc, [r0], #4
++0x40 0xf8 0x04 0xfb
++#      CHECK: warning: potentially undefined instruction encoding
++# CHECK-NEXT: 0x40 0xf8 0x04 0xfb
++
++# strb pc, [r0, #4]!
++0x00 0xf8 0x04 0xff
++#      CHECK: warning: potentially undefined instruction encoding
++# CHECK-NEXT: 0x00 0xf8 0x04 0xff
++
++# strb pc, [r0], #4
++0x00 0xf8 0x04 0xfb
++#      CHECK: warning: potentially undefined instruction encoding
++# CHECK-NEXT: 0x00 0xf8 0x04 0xfb
++
++# strh pc, [r0, #4]!
++0x20 0xf8 0x04 0xff
++#      CHECK: warning: potentially undefined instruction encoding
++# CHECK-NEXT: 0x20 0xf8 0x04 0xff
++
++# strh pc, [r0], #4
++0x20 0xf8 0x04 0xfb
++#      CHECK: warning: potentially undefined instruction encoding
++# CHECK-NEXT: 0x20 0xf8 0x04 0xfb
++
++# str.w sp, [r0, #4]
++0xc0 0xf8 0x04 0xd0
++# str.w lr, [sp, #60]
++0xcd 0xf8 0x3c 0xe0
++# str r1, [r0, #4]!
++0x40 0xf8 0x04 0x1f
++# ldr pc, [r0, #4]!
++0x50 0xf8 0x04 0xff
++
++# CHECK-NOT: warning
++# CHECK: str.w pc, [sp, #60]
++# CHECK: str pc, [r0, #-4]
++# CHECK: str.w pc, [r0, r1]
++# CHECK: str.w pc, [r0, r1, lsl #3]
++# CHECK: str pc, [r0, #4]!
++# CHECK: str pc, [r0], #4
++# CHECK: strb pc, [r0, #4]!
++# CHECK: strb pc, [r0], #4
++# CHECK: strh pc, [r0, #4]!
++# CHECK: strh pc, [r0], #4
++# CHECK: str.w sp, [r0, #4]
++# CHECK: str.w lr, [sp, #60]
++# CHECK: str r1, [r0, #4]!
++# CHECK: ldr pc, [r0, #4]!
+diff --git a/llvm/test/Transforms/InstCombine/memchr-6.ll b/llvm/test/Transforms/InstCombine/memchr-6.ll
+index 3c55f418c..98ba9bd82 100644
+--- a/llvm/test/Transforms/InstCombine/memchr-6.ll
++++ b/llvm/test/Transforms/InstCombine/memchr-6.ll
+@@ -10,6 +10,7 @@ declare ptr @memchr(ptr, i32, i64)
+ @a11111 = constant [5 x i8] c"\01\01\01\01\01"
+ @a111122 = constant [6 x i8] c"\01\01\01\01\02\02"
+ @a1110111 = constant [7 x i8] c"\01\01\01\00\01\01\01"
++@a_fe_ff = constant [6 x i8] c"\FE\FE\FE\FE\FF\FF"
+ 
+ 
+ ; Fold memchr(a00000, C, 5) to *a00000 == C ? a00000 : null.
+@@ -81,6 +82,25 @@ define ptr @fold_memchr_a111122_c_n(i32 %C, i64 %N) {
+   ret ptr %ret
+ }
+ 
++; Same as previous, but using characters with top bit set.
++
++define ptr @fold_memchr_a_fe_ff(i32 %C, i64 %N) {
++; CHECK-LABEL: @fold_memchr_a_fe_ff(
++; CHECK-NEXT:    [[TMP1:%.*]] = trunc i32 [[C:%.*]] to i8
++; CHECK-NEXT:    [[TMP2:%.*]] = icmp eq i8 [[TMP1]], -1
++; CHECK-NEXT:    [[TMP3:%.*]] = icmp ugt i64 [[N:%.*]], 4
++; CHECK-NEXT:    [[TMP4:%.*]] = and i1 [[TMP2]], [[TMP3]]
++; CHECK-NEXT:    [[MEMCHR_SEL1:%.*]] = select i1 [[TMP4]], ptr getelementptr inbounds nuw (i8, ptr @a_fe_ff, i64 4), ptr null
++; CHECK-NEXT:    [[TMP5:%.*]] = icmp eq i8 [[TMP1]], -2
++; CHECK-NEXT:    [[TMP6:%.*]] = icmp ne i64 [[N]], 0
++; CHECK-NEXT:    [[TMP7:%.*]] = and i1 [[TMP6]], [[TMP5]]
++; CHECK-NEXT:    [[MEMCHR_SEL2:%.*]] = select i1 [[TMP7]], ptr @a_fe_ff, ptr [[MEMCHR_SEL1]]
++; CHECK-NEXT:    ret ptr [[MEMCHR_SEL2]]
++;
++
++  %ret = call ptr @memchr(ptr @a_fe_ff, i32 %C, i64 %N)
++  ret ptr %ret
++}
+ 
+ ; Fold memchr(a1110111, C, 3) to a1110111[2] == C ? a1110111 : null.
+ 
+diff --git a/llvm/test/Transforms/InstCombine/memrchr-4.ll b/llvm/test/Transforms/InstCombine/memrchr-4.ll
+index 7362916e2..1c7138d64 100644
+--- a/llvm/test/Transforms/InstCombine/memrchr-4.ll
++++ b/llvm/test/Transforms/InstCombine/memrchr-4.ll
+@@ -8,6 +8,7 @@ declare ptr @memrchr(ptr, i32, i64)
+ 
+ @a11111 = constant [5 x i8] c"\01\01\01\01\01"
+ @a1110111 = constant [7 x i8] c"\01\01\01\00\01\01\01"
++@aff = constant [5 x i8] c"\FF\FF\FF\FF\FF"
+ 
+ 
+ ; Fold memrchr(a11111, C, 5) to *a11111 == C ? a11111 + 5 - 1 : null.
+@@ -24,6 +25,19 @@ define ptr @fold_memrchr_a11111_c_5(i32 %C) {
+   ret ptr %ret
+ }
+ 
++; Same as previous, but using characters with top bit set.
++
++define ptr @fold_memrchr_aff(i32 %C) {
++; CHECK-LABEL: @fold_memrchr_aff(
++; CHECK-NEXT:    [[TMP1:%.*]] = trunc i32 [[C:%.*]] to i8
++; CHECK-NEXT:    [[TMP2:%.*]] = icmp eq i8 [[TMP1]], -1
++; CHECK-NEXT:    [[MEMRCHR_SEL:%.*]] = select i1 [[TMP2]], ptr getelementptr inbounds nuw (i8, ptr @aff, i64 4), ptr null
++; CHECK-NEXT:    ret ptr [[MEMRCHR_SEL]]
++;
++  %ret = call ptr @memrchr(ptr @aff, i32 %C, i64 5)
++  ret ptr %ret
++}
++
+ 
+ ; Fold memrchr(a11111, C, N) to N && *a11111 == C ? a11111 + N - 1 : null,
+ ; on the assumption that N is in bounds.
+diff --git a/llvm/test/Transforms/InstCombine/pr226504-commuted.ll b/llvm/test/Transforms/InstCombine/pr226504-commuted.ll
+new file mode 100644
+index 000000000..7df0d8f6e
+--- /dev/null
++++ b/llvm/test/Transforms/InstCombine/pr226504-commuted.ll
+@@ -0,0 +1,20 @@
++; NOTE: Assertions have been autogenerated by utils/update_test_checks.py UTC_ARGS: --version 6
++; RUN: opt < %s -passes=instcombine -debug-counter=instcombine-visit=4 -S | FileCheck %s
++
++define i8 @src(i1 %c, i8 %x, i8 %y) {
++; CHECK-LABEL: define i8 @src(
++; CHECK-SAME: i1 [[C:%.*]], i8 [[X:%.*]], i8 [[Y:%.*]]) {
++; CHECK-NEXT:    [[SEL:%.*]] = select i1 [[C]], i8 0, i8 1
++; CHECK-NEXT:    [[TRUNC:%.*]] = trunc i8 [[SEL]] to i1
++; CHECK-NEXT:    [[OR:%.*]] = or i1 false, [[TRUNC]]
++; CHECK-NEXT:    [[RET:%.*]] = select i1 [[OR]], i8 [[X]], i8 [[Y]]
++; CHECK-NEXT:    ret i8 [[RET]]
++;
++  %sel = select i1 %c, i8 0, i8 1
++  %trunc = trunc i8 %sel to i1
++  %not = xor i1 %trunc, true
++  %not.not = xor i1 %not, true
++  %or = or i1 %not.not, %trunc
++  %ret = select i1 %or, i8 %x, i8 %y
++  ret i8 %ret
++}
+diff --git a/llvm/test/Transforms/InstCombine/pr226504.ll b/llvm/test/Transforms/InstCombine/pr226504.ll
+new file mode 100644
+index 000000000..2579789cb
+--- /dev/null
++++ b/llvm/test/Transforms/InstCombine/pr226504.ll
+@@ -0,0 +1,20 @@
++; NOTE: Assertions have been autogenerated by utils/update_test_checks.py UTC_ARGS: --version 6
++; RUN: opt < %s -passes=instcombine -debug-counter=instcombine-visit=4 -S | FileCheck %s
++
++define i8 @src(i1 %c, i8 %x, i8 %y) {
++; CHECK-LABEL: define i8 @src(
++; CHECK-SAME: i1 [[C:%.*]], i8 [[X:%.*]], i8 [[Y:%.*]]) {
++; CHECK-NEXT:    [[SEL:%.*]] = select i1 [[C]], i8 0, i8 1
++; CHECK-NEXT:    [[TRUNC:%.*]] = trunc i8 [[SEL]] to i1
++; CHECK-NEXT:    [[OR:%.*]] = or i1 [[TRUNC]], false
++; CHECK-NEXT:    [[RET:%.*]] = select i1 [[OR]], i8 [[X]], i8 [[Y]]
++; CHECK-NEXT:    ret i8 [[RET]]
++;
++  %sel = select i1 %c, i8 0, i8 1
++  %trunc = trunc i8 %sel to i1
++  %not = xor i1 %trunc, true
++  %not.not = xor i1 %not, true
++  %or = or i1 %trunc, %not.not
++  %ret = select i1 %or, i8 %x, i8 %y
++  ret i8 %ret
++}
+diff --git a/llvm/test/tools/llvm-lib/thumb-bitcode.test b/llvm/test/tools/llvm-lib/thumb-bitcode.test
+new file mode 100644
+index 000000000..76aef6c08
+--- /dev/null
++++ b/llvm/test/tools/llvm-lib/thumb-bitcode.test
+@@ -0,0 +1,42 @@
++REQUIRES: arm-registered-target
++
++Windows ARM32 bitcode has a thumb triple (thumbv7-pc-windows-msvc), as Windows
++ARM32 objects do. llvm-lib infers the ARMNT machine type from it.
++
++RUN: rm -rf %t && split-file %s %t
++RUN: llvm-as %t/thumb.ll -o %t/thumb.bc
++RUN: llvm-mc -triple=thumbv7-pc-windows-msvc -filetype=obj -o %t/thumb.obj %S/Inputs/a.s
++RUN: llvm-mc -triple=x86_64-pc-windows-msvc -filetype=obj -o %t/x86_64.obj %S/Inputs/a.s
++
++Bitcode on its own, with /machine:arm, and mixed with an ARMNT object. The
++archive's symbol table has the bitcode's symbol:
++
++RUN: llvm-lib /out:%t/bc.lib %t/thumb.bc
++RUN: llvm-nm --print-armap %t/bc.lib | FileCheck %s --check-prefix=SYM
++RUN: llvm-lib /machine:arm /out:%t/bc-arm.lib %t/thumb.bc
++RUN: llvm-lib /out:%t/mixed.lib %t/thumb.obj %t/thumb.bc
++RUN: llvm-nm --print-armap %t/mixed.lib | FileCheck %s --check-prefix=MIXED
++
++SYM:        Archive map
++SYM-NEXT:   f in {{.*}}thumb.bc
++MIXED:      Archive map
++MIXED-NEXT: a in {{.*}}thumb.obj
++MIXED-NEXT: f in {{.*}}thumb.bc
++
++The machine type is ARMNT, named arm, so it conflicts with x64, whichever comes
++first, and with /machine:x64:
++
++RUN: not llvm-lib %t/x86_64.obj %t/thumb.bc 2>&1 | FileCheck %s
++RUN: not llvm-lib %t/thumb.bc %t/x86_64.obj 2>&1 | FileCheck %s --check-prefix=REV
++RUN: not llvm-lib /machine:x64 %t/thumb.bc 2>&1 | FileCheck %s --check-prefix=FLAG
++CHECK: thumb.bc: file machine type arm conflicts with library machine type x64 (inferred from earlier file '{{.*}}x86_64.obj')
++REV: x86_64.obj: file machine type x64 conflicts with library machine type arm (inferred from earlier file '{{.*}}thumb.bc')
++FLAG: thumb.bc: file machine type arm conflicts with library machine type x64 (from '/machine:x64' flag)
++
++#--- thumb.ll
++target datalayout = "e-m:w-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64"
++target triple = "thumbv7-pc-windows-msvc"
++
++define dso_local arm_aapcs_vfpcc void @f() {
++  ret void
++}

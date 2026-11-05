@@ -1,0 +1,151 @@
+From 8e38dca04581d397365fcfdea562fe09b69d8101 Mon Sep 17 00:00:00 2001
+From: hamed7ir <hamedhe016@gmail.com>
+Date: Tue, 3 Nov 2026 19:37:54 -0800
+Subject: [PATCH 02/14] 0022 lld COFF: ARM delay-load tail merge calls the
+ helper by absolute address
+
+The ARM delay-load tail-merge chunk called __delayLoadHelper2 with a bl,
+which reaches +-16 MiB. Synthetic chunks get no range extension thunks,
+and with LTO the helper (a native CRT object) lands before all of the LTO
+code, far from the tail merge, so linking chrome.dll failed with
+"relocation out of range". The tail merge now loads the helper's address
+(Thumb bit set) into r2 with movw/movt and calls it with blx r2; r2 is
+already saved by the push.w that starts the chunk. The movw/movt pair gets
+an ARM_MOV32(T) base relocation.
+
+Tests: lld/test/COFF/delayimports-armnt.yaml (the new instructions and
+the new base relocation), lld/test/COFF/delayimports-armnt-far-helper.s
+(the helper 17 MiB away).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ lld/COFF/DLL.cpp                              | 11 +++-
+ lld/test/COFF/delayimports-armnt-far-helper.s | 56 +++++++++++++++++++
+ lld/test/COFF/delayimports-armnt.yaml         |  8 ++-
+ 3 files changed, 70 insertions(+), 5 deletions(-)
+ create mode 100644 lld/test/COFF/delayimports-armnt-far-helper.s
+
+diff --git a/lld/COFF/DLL.cpp b/lld/COFF/DLL.cpp
+index 10bc89824..86623a2e3 100644
+--- a/lld/COFF/DLL.cpp
++++ b/lld/COFF/DLL.cpp
+@@ -306,7 +306,9 @@ static const uint8_t tailMergeARM[] = {
+     0x61, 0x46,             // mov     r1, ip
+     0x40, 0xf2, 0x00, 0x00, // mov.w   r0, #0 DELAY_IMPORT_DESCRIPTOR
+     0xc0, 0xf2, 0x00, 0x00, // mov.t   r0, #0 DELAY_IMPORT_DESCRIPTOR
+-    0x00, 0xf0, 0x00, 0xd0, // bl      #0 __delayLoadHelper2
++    0x40, 0xf2, 0x00, 0x02, // mov.w   r2, #0 __delayLoadHelper2
++    0xc0, 0xf2, 0x00, 0x02, // mov.t   r2, #0 __delayLoadHelper2
++    0x90, 0x47,             // blx     r2
+     0x84, 0x46,             // mov     ip, r0
+     0xbd, 0xec, 0x10, 0x0b, // vpop    {d0, d1, d2, d3, d4, d5, d6, d7}
+     0xbd, 0xe8, 0x0f, 0x48, // pop.w   {r0, r1, r2, r3, r11, lr}
+@@ -513,11 +515,16 @@ public:
+   void writeTo(uint8_t *buf) const override {
+     memcpy(buf, tailMergeARM, sizeof(tailMergeARM));
+     applyMOV32T(buf + 14, desc->getRVA() + ctx.config.imageBase);
+-    applyBranch24T(buf + 22, helper->getRVA() - rva - 26);
++    // Call the helper through an absolute address (Thumb bit set) instead of
++    // a bl. A bl reaches only +-16 MiB and synthetic chunks get no
++    // range-extension thunks; with LTO the helper (a native CRT object) lands
++    // before all LTO code, far from this chunk ("relocation out of range").
++    applyMOV32T(buf + 22, (helper->getRVA() + ctx.config.imageBase) | 1);
+   }
+ 
+   void getBaserels(std::vector<Baserel> *res) override {
+     res->emplace_back(rva + 14, IMAGE_REL_BASED_ARM_MOV32T);
++    res->emplace_back(rva + 22, IMAGE_REL_BASED_ARM_MOV32T);
+   }
+ 
+   Chunk *desc = nullptr;
+diff --git a/lld/test/COFF/delayimports-armnt-far-helper.s b/lld/test/COFF/delayimports-armnt-far-helper.s
+new file mode 100644
+index 000000000..b4513c5e0
+--- /dev/null
++++ b/lld/test/COFF/delayimports-armnt-far-helper.s
+@@ -0,0 +1,56 @@
++// REQUIRES: arm
++// RUN: llvm-mc -filetype=obj -triple=thumbv7-windows %s -o %t.obj
++// RUN: lld-link %t.obj %p/Inputs/library.lib /subsystem:console /entry:main \
++// RUN:   /delayload:library.dll /out:%t.exe
++// RUN: llvm-readobj --coff-basereloc %t.exe | FileCheck --check-prefix=BASEREL %s
++// RUN: llvm-objdump --no-print-imm-hex -d %t.exe --start-address=0x150101a \
++// RUN:   --stop-address=0x1501046 | FileCheck --check-prefix=DISASM %s
++
++// The delay-load helper comes from a CRT object, so it can be more than 16 MiB
++// away from the tail-merge chunk, which lld appends to .text after all input
++// code. With LTO all of the LTO code lies in between. The tail merge called the
++// helper with a bl, which reaches +-16 MiB, and synthetic chunks get no range
++// extension thunks, so the link failed with "relocation out of range". It now
++// loads the helper's absolute address (Thumb bit set) into r2 and calls it with
++// blx, and the movw/movt pair gets an ARM_MOV32(T) base relocation.
++
++// The tail merge starts at 0x150101a, just over 17 MiB after
++// __delayLoadHelper2 at 0x40100c. At +22 it loads 0x40100d, the helper with
++// the Thumb bit set.
++// DISASM:      150101a: {{.*}} push.w {r0, r1, r2, r3, r11, lr}
++// DISASM:      1501030: f241 020d movw r2, #4109
++// DISASM-NEXT: 1501034: f2c0 0240 movt r2, #64
++// DISASM-NEXT: 1501038: 4790 blx r2
++
++// Base relocations: right after the entry for the delay-load thunk's movw/movt
++// at 0x110100e come the tail merge's two pairs, at +14 (the delay-import
++// descriptor) and at +22 (the helper).
++// BASEREL:      Address: 0x110100E
++// BASEREL-NEXT: }
++// BASEREL-NEXT: Entry {
++// BASEREL-NEXT: Type: ARM_MOV32(T)
++// BASEREL-NEXT: Address: 0x1101028
++// BASEREL-NEXT: }
++// BASEREL-NEXT: Entry {
++// BASEREL-NEXT: Type: ARM_MOV32(T)
++// BASEREL-NEXT: Address: 0x1101030
++
++    .syntax unified
++    .text
++    .globl main
++    .def main; .scl 2; .type 32; .endef
++main:
++    movw r0, :lower16:__imp_function
++    movt r0, :upper16:__imp_function
++    ldr r0, [r0]
++    bx r0
++
++    .globl __delayLoadHelper2
++    .def __delayLoadHelper2; .scl 2; .type 32; .endef
++__delayLoadHelper2:
++    bx lr
++
++// 17 MiB between the helper and the end of .text: 1 MiB more than a bl can
++// reach, so the test does not depend on the exact size of the code around it.
++    .section .text$z, "xr"
++    .space 0x1100000
+diff --git a/lld/test/COFF/delayimports-armnt.yaml b/lld/test/COFF/delayimports-armnt.yaml
+index ea96d864e..386c7cd22 100644
+--- a/lld/test/COFF/delayimports-armnt.yaml
++++ b/lld/test/COFF/delayimports-armnt.yaml
+@@ -39,8 +39,8 @@
+ # BASEREL-NEXT:     Address: 0x1026
+ # BASEREL-NEXT:   }
+ # BASEREL-NEXT:   Entry {
+-# BASEREL-NEXT:     Type: ABSOLUTE
+-# BASEREL-NEXT:     Address: 0x1000
++# BASEREL-NEXT:     Type: ARM_MOV32(T)
++# BASEREL-NEXT:     Address: 0x102E
+ # BASEREL-NEXT:   }
+ # BASEREL-NEXT:   Entry {
+ # BASEREL-NEXT:     Type: HIGHLOW
+@@ -62,7 +62,9 @@
+ # DISASM-NEXT:               4661            mov     r1, r12
+ # DISASM-NEXT:               f242 0004       movw r0, #8196
+ # DISASM-NEXT:               f2c0 0040       movt    r0, #64
+-# DISASM-NEXT:               f7ff ffe7       bl      0x401000 <.text>
++# DISASM-NEXT:               f241 0201       movw r2, #4097
++# DISASM-NEXT:               f2c0 0240       movt    r2, #64
++# DISASM-NEXT:               4790            blx     r2
+ # DISASM-NEXT:               4684            mov     r12, r0
+ # DISASM-NEXT:               ecbd 0b10       vpop    {d0, d1, d2, d3, d4, d5, d6, d7}
+ # DISASM-NEXT:               e8bd 480f       pop.w   {r0, r1, r2, r3, r11, lr}
+-- 
+2.53.0.windows.3
+

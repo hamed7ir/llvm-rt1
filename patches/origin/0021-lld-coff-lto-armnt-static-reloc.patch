@@ -1,0 +1,119 @@
+From cb852252574150747671cc5810ea9141edd9363d Mon Sep 17 00:00:00 2001
+From: hamed7ir <hamedhe016@gmail.com>
+Date: Tue, 3 Nov 2026 19:37:53 -0800
+Subject: [PATCH 01/14] 0021 lld COFF: LTO uses the static reloc model for
+ ARMNT
+
+lld's LTO code generator used the PIC relocation model on every machine
+but i386. On ARMNT the stack guard load in a stack-protected (/GS)
+function then became a PC-relative movw/movt pair, which COFF cannot
+represent, so code generation failed with "Cannot represent this
+expression". clang compiles Windows ARM code with the static model, and
+LTO now does the same.
+
+Found in Venetium's LTO link of chrome.dll (Venetium handoff,
+2026-11-03).
+
+Test: lld/test/COFF/lto-reloc-model-arm.ll links a stack-protected ARMNT
+function with regular LTO and with ThinLTO, and checks the ARM_MOV32(T)
+base relocation of the absolute cookie load.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ lld/COFF/LTO.cpp                     |  7 ++-
+ lld/test/COFF/lto-reloc-model-arm.ll | 65 ++++++++++++++++++++++++++++
+ 2 files changed, 71 insertions(+), 1 deletion(-)
+ create mode 100644 lld/test/COFF/lto-reloc-model-arm.ll
+
+diff --git a/lld/COFF/LTO.cpp b/lld/COFF/LTO.cpp
+index 71413b031..800e003f6 100644
+--- a/lld/COFF/LTO.cpp
++++ b/lld/COFF/LTO.cpp
+@@ -69,7 +69,12 @@ lto::Config BitcodeCompiler::createConfig() {
+   // Use static reloc model on 32-bit x86 because it usually results in more
+   // compact code, and because there are also known code generation bugs when
+   // using the PIC model (see PR34306).
+-  if (ctx.config.machine == COFF::IMAGE_FILE_MACHINE_I386)
++  // Also on 32-bit ARM, which clang compiles for Windows with the static model.
++  // With PIC, the /GS stack-guard load becomes a PC-relative movw/movt pair,
++  // which COFF cannot represent ("Cannot represent this expression"), so every
++  // stack-protected function failed LTO code generation.
++  if (ctx.config.machine == COFF::IMAGE_FILE_MACHINE_I386 ||
++      ctx.config.machine == COFF::IMAGE_FILE_MACHINE_ARMNT)
+     c.RelocModel = Reloc::Static;
+   else
+     c.RelocModel = Reloc::PIC_;
+diff --git a/lld/test/COFF/lto-reloc-model-arm.ll b/lld/test/COFF/lto-reloc-model-arm.ll
+new file mode 100644
+index 000000000..c751ddbeb
+--- /dev/null
++++ b/lld/test/COFF/lto-reloc-model-arm.ll
+@@ -0,0 +1,65 @@
++; REQUIRES: arm
++
++;; LTO code generation for ARMNT uses the static relocation model, as clang does
++;; for Windows ARM targets. With the PIC model, the stack guard load in a
++;; stack-protected function was a PC-relative movw/movt pair, which COFF cannot
++;; represent, and code generation failed with "Cannot represent this expression".
++
++; RUN: rm -rf %t && split-file %s %t
++; RUN: llvm-as %t/gs.ll -o %t/gs.obj
++; RUN: opt -module-summary %t/gs.ll -o %t/gs.thin.obj
++; RUN: llvm-mc -triple=thumbv7-windows-msvc -filetype=obj %t/crt.s -o %t/crt.obj
++
++;; Regular LTO, then ThinLTO.
++; RUN: lld-link /dll /noentry /export:f /out:%t/gs.dll %t/gs.obj %t/crt.obj
++; RUN: llvm-readobj --coff-basereloc %t/gs.dll | FileCheck %s
++; RUN: lld-link /dll /noentry /export:f /out:%t/gs.thin.dll %t/gs.thin.obj %t/crt.obj
++; RUN: llvm-readobj --coff-basereloc %t/gs.thin.dll | FileCheck %s
++
++;; The static model loads the address of __security_cookie with an absolute
++;; movw/movt pair, which needs an ARM_MOV32(T) base relocation. Those loads are
++;; the only absolute addresses in this DLL, so the first base relocation is one
++;; of them.
++; CHECK:      BaseReloc [
++; CHECK-NEXT:   Entry {
++; CHECK-NEXT:     Type: ARM_MOV32(T)
++
++;--- gs.ll
++target datalayout = "e-m:w-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64"
++target triple = "thumbv7-pc-windows-msvc"
++
++;; sspstrong gives a stack protector to every function with an array on the
++;; stack. The array's address goes to @use, which is defined in crt.s, a native
++;; object that LTO cannot look into, so the optimizer has to keep the whole
++;; array, and with it the protector and its load of __security_cookie. (With
++;; only a volatile store to its first byte, SROA shrank the array to that one
++;; byte, the protector was gone, and the unfixed lld linked it without error.)
++declare void @use(ptr)
++
++define dso_local arm_aapcs_vfpcc void @f() #0 {
++entry:
++  %buf = alloca [16 x i8], align 1
++  call void @use(ptr %buf)
++  ret void
++}
++
++attributes #0 = { sspstrong }
++
++;--- crt.s
++@ What the CRT provides for /GS.
++  .text
++  .globl __security_check_cookie
++  .p2align 1
++__security_check_cookie:
++  bx lr
++
++  .globl use
++  .p2align 1
++use:
++  bx lr
++
++  .data
++  .globl __security_cookie
++  .p2align 2
++__security_cookie:
++  .long 0
+-- 
+2.53.0.windows.3
+

@@ -1,0 +1,85 @@
+From ff875e9e15f718bcabf04daa4c32d6da5dfc62a8 Mon Sep 17 00:00:00 2001
+From: hamed7ir <hamedhe016@gmail.com>
+Date: Tue, 3 Nov 2026 19:37:55 -0800
+Subject: [PATCH 04/14] 0024 CGProfile: no edges to intrinsics
+
+CGProfile asked TTI whether a callee is lowered to a call, and ARM's TTI
+says yes for math intrinsics such as llvm.exp2.f64. So the edge went into
+the CG Profile, and on COFF the .cg_profile section named llvm.exp2.f64,
+an undefined symbol at link time (ARM32 + PGO, V8's d8.exe link). A call
+to an intrinsic is never an edge of the call graph profile: skip it.
+
+This is in LLVM proper, so clang gets it too, for PGO without LTO.
+
+Test: llvm/test/Instrumentation/cgprofile-intrinsics.ll.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../Transforms/Instrumentation/CGProfile.cpp  |  6 ++-
+ .../Instrumentation/cgprofile-intrinsics.ll   | 37 +++++++++++++++++++
+ 2 files changed, 42 insertions(+), 1 deletion(-)
+ create mode 100644 llvm/test/Instrumentation/cgprofile-intrinsics.ll
+
+diff --git a/llvm/lib/Transforms/Instrumentation/CGProfile.cpp b/llvm/lib/Transforms/Instrumentation/CGProfile.cpp
+index 60e7acc77..2cdcadb5f 100644
+--- a/llvm/lib/Transforms/Instrumentation/CGProfile.cpp
++++ b/llvm/lib/Transforms/Instrumentation/CGProfile.cpp
+@@ -53,7 +53,11 @@ static bool runCGProfilePass(Module &M, FunctionAnalysisManager &FAM,
+                           Function *CalledF, uint64_t NewCount) {
+     if (NewCount == 0)
+       return;
+-    if (!CalledF || !TTI.isLoweredToCall(CalledF) ||
++    // Never record an edge to an intrinsic. ARM's TTI reports math intrinsics
++    // (exp2, pow, sin, ...) as lowered to calls, so their declarations reached
++    // the CG profile and .cg_profile named them; on COFF that is an undefined
++    // symbol such as llvm.exp2.f64 at link time.
++    if (!CalledF || CalledF->isIntrinsic() || !TTI.isLoweredToCall(CalledF) ||
+         CalledF->hasDLLImportStorageClass())
+       return;
+     uint64_t &Count = Counts[std::make_pair(F, CalledF)];
+diff --git a/llvm/test/Instrumentation/cgprofile-intrinsics.ll b/llvm/test/Instrumentation/cgprofile-intrinsics.ll
+new file mode 100644
+index 000000000..195914e69
+--- /dev/null
++++ b/llvm/test/Instrumentation/cgprofile-intrinsics.ll
+@@ -0,0 +1,37 @@
++; REQUIRES: arm-registered-target
++; RUN: opt < %s -passes=cg-profile -S | FileCheck %s
++
++;; A call to an intrinsic is not an edge of the call graph profile. ARM's TTI
++;; reports math intrinsics such as llvm.exp2.f64 as lowered to calls, so the
++;; edge reached the CG Profile, and on COFF the .cg_profile section then named
++;; llvm.exp2.f64, an undefined symbol at link time. ARM's TTI says the same for
++;; the other libm intrinsics (pow, powi, sin, ...) and, without MVE, for the
++;; masked loads and stores, so the test calls several of them.
++
++target datalayout = "e-m:w-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64"
++target triple = "thumbv7-pc-windows-msvc"
++
++declare double @llvm.exp2.f64(double)
++declare double @llvm.pow.f64(double, double)
++declare double @llvm.powi.f64.i32(double, i32)
++declare <4 x i32> @llvm.masked.load.v4i32.p0(ptr, <4 x i1>, <4 x i32>)
++declare void @g()
++
++define double @f(double %x, i32 %n, ptr %p, <4 x i1> %m, ptr %q) !prof !0 {
++  call void @g()
++  %a = call double @llvm.exp2.f64(double %x)
++  %b = call double @llvm.pow.f64(double %a, double %x)
++  %c = call double @llvm.powi.f64.i32(double %b, i32 %n)
++  %v = call <4 x i32> @llvm.masked.load.v4i32.p0(ptr align 4 %p, <4 x i1> %m, <4 x i32> zeroinitializer)
++  store <4 x i32> %v, ptr %q
++  ret double %c
++}
++
++!0 = !{!"function_entry_count", i64 100}
++
++;; The profile has exactly one edge, the one to @g.
++; CHECK: !llvm.module.flags = !{![[CGPROF:[0-9]+]]}
++; CHECK: ![[CGPROF]] = !{i32 5, !"CG Profile", ![[EDGES:[0-9]+]]}
++; CHECK: ![[EDGES]] = distinct !{![[E0:[0-9]+]]}
++; CHECK: ![[E0]] = !{ptr @f, ptr @g, i64 100}
++; CHECK-NOT: llvm.
+-- 
+2.53.0.windows.3
+
