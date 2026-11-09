@@ -1,15 +1,15 @@
-patches/origin/: every rt2.2 change on its own
+patches/origin/: every rt2.3 change on its own
 
-The toolchain was BUILT from ../rt22-vs-23.1.1.patch. That's one file, the full diff from clean
+The toolchain was BUILT from ../rt23-vs-23.1.1.patch. That's one file, the full diff from clean
 llvmorg-23.1.1 (git diff --binary). Applied to a clean 23.1.1 it gives the same tree, file for file.
 The files here are the same changes one at a time, so you can read them. RELEASE-NOTES.md has a
 line on what each patch fixes.
 
-There are three groups. Only the second and the third apply as they are.
+There are four groups. Only the second, the third and the fourth apply as they are.
 
 0002 0003 0004 0005 0007 0010: THE ORIGINAL rt1 PATCHES, written for LLVM 18.1.8.
   They are here because they explain the bugs: what was wrong, how it was measured, and why the
-  fix looks the way it does. They are NOT exactly what rt2.2 was built from:
+  fix looks the way it does. They are NOT exactly what rt2.3 was built from:
 
   0004  moved to new anchors. 23.x calls the parameter Reg instead of RegNum and uses Reg.id(),
         so the 18.x hunks don't apply.
@@ -18,7 +18,7 @@ There are three groups. Only the second and the third apply as they are.
         function instead, so there is nothing to pass through. The hunk that stays is also
         tighter (byval arguments don't add to the save area).
 
-  Don't run these patches' own lit tests against rt2.2 and expect them to pass. They test 18.x
+  Don't run these patches' own lit tests against rt2.3 and expect them to pass. They test 18.x
   behaviour. 0007's test as rt2 shipped it had exactly that problem, see 0019.
 
 0011 to 0020: rt2.1's, WRITTEN FOR 23.1.1. They apply as they are, each on top of 23.1.1 plus the
@@ -52,3 +52,11 @@ There are three groups. Only the second and the third apply as they are.
   B02 did not apply to 23.1.1 as upstream wrote it, because the code after one of its hunks is
   older here. It went in with two lines of context on each side, and a note in its message says
   so. Its own changed lines are upstream's.
+
+0027 and 0028: NEW IN rt2.3, git format-patch files, in this order on top of rt2.2:
+
+  0027  clang MS ABI: image-relative C++ throw information on 32-bit Arm
+  0028  clang: __ARM_SIZEOF_WCHAR_T is the size of the target's wchar_t
+
+  Each one applied to the tree before it gives that commit's tree, and both in order on top of
+  rt2.2 give the tree rt2.3 was built from.

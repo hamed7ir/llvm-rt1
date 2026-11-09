@@ -1,0 +1,136 @@
+From 559af165a6eb1d068da4234c7f7563723fa1afbb Mon Sep 17 00:00:00 2001
+From: hamed7ir <hamedhe016@gmail.com>
+Date: Sun, 8 Nov 2026 21:07:34 -0800
+Subject: [PATCH 28/28] 0028 clang: __ARM_SIZEOF_WCHAR_T is the size of the
+ target's wchar_t
+
+The ARM and AArch64 targets defined __ARM_SIZEOF_WCHAR_T as 4 unless
+-fshort-wchar or -fwchar-type set the size. On Windows wchar_t is
+unsigned short, 2 bytes, because the target says so and not because of
+those options, so thumbv7-windows-msvc, aarch64-windows-msvc,
+arm64ec-windows-msvc and the MinGW triples said 4, and
+_Static_assert(sizeof(wchar_t) == __ARM_SIZEOF_WCHAR_T) failed (kodi-rt
+handoff, 2026-11-08). MSVC does not define the macro.
+
+When no option sets the size, both targets now take the width of the
+target's wchar_t type. The options still win: for the main target they
+give the same width, since TargetInfo::adjust has applied them to the
+wchar_t type, and the host target of an offloading compile (CUDA, HIP,
+OpenMP device) is not adjusted at all, so only the option has the right
+size there. Only the Windows targets without such an option change.
+
+Tests: clang/test/Preprocessor/arm-sizeof-wchar.c (new, with offloading
+compiles whose host is Arm or AArch64), and
+clang/test/Preprocessor/init-aarch64.c, whose AARCH64-MSVC and
+ARM64EC-MSVC lines now expect 2.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ clang/lib/Basic/Targets/AArch64.cpp        |  7 ++++-
+ clang/lib/Basic/Targets/ARM.cpp            |  7 ++++-
+ clang/test/Preprocessor/arm-sizeof-wchar.c | 32 ++++++++++++++++++++++
+ clang/test/Preprocessor/init-aarch64.c     |  4 +--
+ 4 files changed, 46 insertions(+), 4 deletions(-)
+ create mode 100644 clang/test/Preprocessor/arm-sizeof-wchar.c
+
+diff --git a/clang/lib/Basic/Targets/AArch64.cpp b/clang/lib/Basic/Targets/AArch64.cpp
+index d531e26ad..d34817a24 100644
+--- a/clang/lib/Basic/Targets/AArch64.cpp
++++ b/clang/lib/Basic/Targets/AArch64.cpp
+@@ -476,8 +476,13 @@ void AArch64TargetInfo::getTargetDefines(const LangOptions &Opts,
+   if (Opts.UnsafeFPMath)
+     Builder.defineMacro("__ARM_FP_FAST", "1");
+ 
++  // The size -fshort-wchar or -fwchar-type gives, else that of the target's
++  // wchar_t: 2 bytes on Windows, where it is unsigned short. Not the target's
++  // width alone: an offloading compile's host target is not adjusted for those
++  // options.
+   Builder.defineMacro("__ARM_SIZEOF_WCHAR_T",
+-                      Twine(Opts.WCharSize ? Opts.WCharSize : 4));
++                      Twine(Opts.WCharSize ? Opts.WCharSize
++                                           : getWCharWidth() / 8));
+ 
+   Builder.defineMacro("__ARM_SIZEOF_MINIMAL_ENUM", Opts.ShortEnums ? "1" : "4");
+ 
+diff --git a/clang/lib/Basic/Targets/ARM.cpp b/clang/lib/Basic/Targets/ARM.cpp
+index 79604af32..3834293ae 100644
+--- a/clang/lib/Basic/Targets/ARM.cpp
++++ b/clang/lib/Basic/Targets/ARM.cpp
+@@ -945,8 +945,13 @@ void ARMTargetInfo::getTargetDefines(const LangOptions &Opts,
+                         "0x" + Twine::utohexstr(getARMCDECoprocMask()));
+   }
+ 
++  // The size -fshort-wchar or -fwchar-type gives, else that of the target's
++  // wchar_t: 2 bytes on Windows, where it is unsigned short. Not the target's
++  // width alone: an offloading compile's host target is not adjusted for those
++  // options.
+   Builder.defineMacro("__ARM_SIZEOF_WCHAR_T",
+-                      Twine(Opts.WCharSize ? Opts.WCharSize : 4));
++                      Twine(Opts.WCharSize ? Opts.WCharSize
++                                           : getWCharWidth() / 8));
+ 
+   Builder.defineMacro("__ARM_SIZEOF_MINIMAL_ENUM", Opts.ShortEnums ? "1" : "4");
+ 
+diff --git a/clang/test/Preprocessor/arm-sizeof-wchar.c b/clang/test/Preprocessor/arm-sizeof-wchar.c
+new file mode 100644
+index 000000000..f14bcc52c
+--- /dev/null
++++ b/clang/test/Preprocessor/arm-sizeof-wchar.c
+@@ -0,0 +1,32 @@
++// __ARM_SIZEOF_WCHAR_T is the size of wchar_t: the size -fshort-wchar or
++// -fwchar-type gives, else that of the target's wchar_t, which is 2 bytes on
++// Windows (unsigned short, MSVC and MinGW) and 4 bytes on the other targets here.
++
++// RUN: %clang_cc1 -E -dM -triple=thumbv7-windows-msvc %s | FileCheck %s --check-prefix=TWO
++// RUN: %clang_cc1 -E -dM -triple=thumbv7-windows-gnu %s | FileCheck %s --check-prefix=TWO
++// RUN: %clang_cc1 -E -dM -triple=aarch64-windows-msvc %s | FileCheck %s --check-prefix=TWO
++// RUN: %clang_cc1 -E -dM -triple=aarch64-windows-gnu %s | FileCheck %s --check-prefix=TWO
++// RUN: %clang_cc1 -E -dM -triple=arm64ec-windows-msvc %s | FileCheck %s --check-prefix=TWO
++// RUN: %clang_cc1 -E -dM -triple=armv7-linux-gnueabihf %s | FileCheck %s --check-prefix=FOUR
++// RUN: %clang_cc1 -E -dM -triple=aarch64-linux-gnu %s | FileCheck %s --check-prefix=FOUR
++// RUN: %clang_cc1 -E -dM -triple=armv7-linux-gnueabihf -fwchar-type=short -fno-signed-wchar %s | FileCheck %s --check-prefix=TWO
++// RUN: %clang_cc1 -E -dM -triple=aarch64-linux-gnu -fwchar-type=short -fno-signed-wchar %s | FileCheck %s --check-prefix=TWO
++
++// The host target of an offloading compile: the wchar_t options apply to it
++// too, but its TargetInfo is not adjusted for them.
++// RUN: %clang_cc1 -E -dM -triple=nvptx64-nvidia-cuda -aux-triple aarch64-linux-gnu -fcuda-is-device -fwchar-type=short -fno-signed-wchar -x cuda %s | FileCheck %s --check-prefix=TWO
++// RUN: %clang_cc1 -E -dM -triple=nvptx64-nvidia-cuda -aux-triple armv7-linux-gnueabihf -fcuda-is-device -fwchar-type=short -fno-signed-wchar -x cuda %s | FileCheck %s --check-prefix=TWO
++// RUN: %clang_cc1 -E -dM -triple=nvptx64-nvidia-cuda -aux-triple aarch64-linux-gnu -fcuda-is-device -x cuda %s | FileCheck %s --check-prefix=FOUR
++// RUN: %clang_cc1 -E -dM -triple=nvptx64-nvidia-cuda -aux-triple thumbv7-windows-msvc -fcuda-is-device -x cuda %s | FileCheck %s --check-prefix=TWO
++
++// TWO: #define __ARM_SIZEOF_WCHAR_T 2
++// FOUR: #define __ARM_SIZEOF_WCHAR_T 4
++
++// The same as the rule itself: sizeof(wchar_t) == __ARM_SIZEOF_WCHAR_T.
++// RUN: %clang_cc1 -fsyntax-only -verify -triple=thumbv7-windows-msvc %s
++// RUN: %clang_cc1 -fsyntax-only -verify -triple=aarch64-windows-msvc %s
++// RUN: %clang_cc1 -fsyntax-only -verify -triple=armv7-linux-gnueabihf %s
++// RUN: %clang_cc1 -fsyntax-only -verify -triple=armv7-linux-gnueabihf -fwchar-type=short -fno-signed-wchar %s
++// expected-no-diagnostics
++_Static_assert(sizeof(__WCHAR_TYPE__) == __ARM_SIZEOF_WCHAR_T,
++               "__ARM_SIZEOF_WCHAR_T is not the size of wchar_t");
+diff --git a/clang/test/Preprocessor/init-aarch64.c b/clang/test/Preprocessor/init-aarch64.c
+index 44b92ea23..92bcf5b74 100644
+--- a/clang/test/Preprocessor/init-aarch64.c
++++ b/clang/test/Preprocessor/init-aarch64.c
+@@ -641,7 +641,7 @@
+ // AARCH64-MSVC: #define __ARM_FP16_FORMAT_IEEE 1
+ // AARCH64-MSVC: #define __ARM_PCS_AAPCS64 1
+ // AARCH64-MSVC: #define __ARM_SIZEOF_MINIMAL_ENUM 4
+-// AARCH64-MSVC: #define __ARM_SIZEOF_WCHAR_T 4
++// AARCH64-MSVC: #define __ARM_SIZEOF_WCHAR_T 2
+ // AARCH64-MSVC: #define __BIGGEST_ALIGNMENT__ 16
+ // AARCH64-MSVC: #define __BYTE_ORDER__ __ORDER_LITTLE_ENDIAN__
+ // AARCH64-MSVC: #define __CHAR16_TYPE__ unsigned short
+@@ -810,7 +810,7 @@
+ // ARM64EC-MSVC: #define __ARM_FP16_FORMAT_IEEE 1
+ // ARM64EC-MSVC: #define __ARM_PCS_AAPCS64 1
+ // ARM64EC-MSVC: #define __ARM_SIZEOF_MINIMAL_ENUM 4
+-// ARM64EC-MSVC: #define __ARM_SIZEOF_WCHAR_T 4
++// ARM64EC-MSVC: #define __ARM_SIZEOF_WCHAR_T 2
+ // ARM64EC-MSVC: #define __ATOMIC_ACQUIRE 2
+ // ARM64EC-MSVC: #define __ATOMIC_ACQ_REL 4
+ // ARM64EC-MSVC: #define __ATOMIC_CONSUME 1
+-- 
+2.53.0.windows.3
+

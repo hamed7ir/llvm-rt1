@@ -1,5 +1,5 @@
 # Patches must keep their exact bytes. Some hunks of the full diff contain CR characters (an LLVM
 # file that uses CRLF line endings), and git's line-ending conversion would strip them. That breaks
-# the patch, and the sha256 of patches/rt22-vs-23.1.1.patch would no longer match the revision clang
+# the patch, and the sha256 of patches/rt23-vs-23.1.1.patch would no longer match the revision clang
 # prints.
 *.patch -text

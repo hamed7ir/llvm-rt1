@@ -1,0 +1,258 @@
+From 1c2bad8f5de46388a84605e33506d8e76d3c68fb Mon Sep 17 00:00:00 2001
+From: hamed7ir <hamedhe016@gmail.com>
+Date: Sun, 8 Nov 2026 21:07:32 -0800
+Subject: [PATCH 27/28] 0027 clang MS ABI: image-relative C++ throw information
+ on 32-bit Arm
+
+MSVC's runtime reads the C++ throw information as image-relative 32-bit
+offsets on every target but 32-bit x86: the ThrowInfo (its cleanup
+function, forward-compatibility field and catchable type array), the
+entries of the CatchableTypeArray, and each CatchableType (its type
+descriptor and copy function). ehdata_forceinclude.h sets
+_EH_RELATIVE_TYPEINFO to 1 for _M_ARM, as for _M_X64 and _M_ARM64, and
+_RTTI_RELATIVE_TYPEINFO to 0, so on 32-bit Arm the RTTI stays absolute.
+
+Clang tied both to one test, a 64-bit pointer (isImageRelative), so for
+thumbv7-windows-msvc it wrote absolute pointers (IMAGE_REL_ARM_ADDR32)
+into the throw tables. vcruntime added the image base to each of them,
+and every C++ throw crashed in FindHandler before any catch ran
+(kodi-rt handoff, 2026-11-08: Surface RT, Windows RT 8.1).
+
+The throw tables now have their own test, isThrowInfoImageRelative: a
+64-bit target, or 32-bit Arm. The RTTI keeps isImageRelative. On a 32-bit
+target the image-relative offset already has the field's width, so it is
+not truncated there. 32-bit x86 and the 64-bit targets are unchanged.
+
+Test: clang/test/CodeGenCXX/microsoft-abi-throw-arm.cpp.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ clang/lib/CodeGen/MicrosoftCXXABI.cpp         | 74 +++++++++++++------
+ .../CodeGenCXX/microsoft-abi-throw-arm.cpp    | 53 +++++++++++++
+ 2 files changed, 106 insertions(+), 21 deletions(-)
+ create mode 100644 clang/test/CodeGenCXX/microsoft-abi-throw-arm.cpp
+
+diff --git a/clang/lib/CodeGen/MicrosoftCXXABI.cpp b/clang/lib/CodeGen/MicrosoftCXXABI.cpp
+index d32458003..8a7fe4989 100644
+--- a/clang/lib/CodeGen/MicrosoftCXXABI.cpp
++++ b/clang/lib/CodeGen/MicrosoftCXXABI.cpp
+@@ -501,6 +501,17 @@ public:
+     return CGM.getTarget().getPointerWidth(LangAS::Default) == 64;
+   }
+ 
++  // The C++ throw information (ThrowInfo, CatchableTypeArray and
++  // CatchableType) holds image-relative offsets on every target but 32-bit
++  // x86. On 32-bit Arm that differs from the RTTI, which stays absolute there:
++  // MSVC's ehdata_forceinclude.h sets _EH_RELATIVE_TYPEINFO but not
++  // _RTTI_RELATIVE_TYPEINFO for _M_ARM, and its runtime adds the image base to
++  // each of these fields when it handles a throw.
++  bool isThrowInfoImageRelative() const {
++    const llvm::Triple &T = CGM.getTarget().getTriple();
++    return isImageRelative() || T.isARM() || T.isThumb();
++  }
++
+   // 5 routines for constructing the llvm types for MS RTTI structs.
+   llvm::StructType *getTypeDescriptorType(StringRef TypeInfoString) {
+     llvm::SmallString<32> TDTypeName("rtti.TypeDescriptor");
+@@ -587,7 +598,24 @@ public:
+   llvm::Constant *getImageRelativeConstant(llvm::Constant *PtrVal) {
+     if (!isImageRelative())
+       return PtrVal;
++    return getImageRelativeOffset(PtrVal);
++  }
++
++  // The throw information uses these two instead of getImageRelativeType and
++  // getImageRelativeConstant; see isThrowInfoImageRelative.
++  llvm::Type *getThrowInfoRelativeType(llvm::Type *PtrType) {
++    if (!isThrowInfoImageRelative())
++      return PtrType;
++    return CGM.IntTy;
++  }
++
++  llvm::Constant *getThrowInfoRelativeConstant(llvm::Constant *PtrVal) {
++    if (!isThrowInfoImageRelative())
++      return PtrVal;
++    return getImageRelativeOffset(PtrVal);
++  }
+ 
++  llvm::Constant *getImageRelativeOffset(llvm::Constant *PtrVal) {
+     if (PtrVal->isNullValue())
+       return llvm::Constant::getNullValue(CGM.IntTy);
+ 
+@@ -598,6 +626,9 @@ public:
+     llvm::Constant *Diff =
+         llvm::ConstantExpr::getSub(PtrValAsInt, ImageBaseAsInt,
+                                    /*HasNUW=*/true, /*HasNSW=*/true);
++    // On a 32-bit target the difference already has the field's width.
++    if (Diff->getType() == CGM.IntTy)
++      return Diff;
+     return llvm::ConstantExpr::getTrunc(Diff, CGM.IntTy);
+   }
+ 
+@@ -738,13 +769,13 @@ public:
+     if (CatchableTypeType)
+       return CatchableTypeType;
+     llvm::Type *FieldTypes[] = {
+-        CGM.IntTy,                           // Flags
+-        getImageRelativeType(CGM.Int8PtrTy), // TypeDescriptor
+-        CGM.IntTy,                           // NonVirtualAdjustment
+-        CGM.IntTy,                           // OffsetToVBPtr
+-        CGM.IntTy,                           // VBTableIndex
+-        CGM.IntTy,                           // Size
+-        getImageRelativeType(CGM.Int8PtrTy)  // CopyCtor
++        CGM.IntTy,                               // Flags
++        getThrowInfoRelativeType(CGM.Int8PtrTy), // TypeDescriptor
++        CGM.IntTy,                               // NonVirtualAdjustment
++        CGM.IntTy,                               // OffsetToVBPtr
++        CGM.IntTy,                               // VBTableIndex
++        CGM.IntTy,                               // Size
++        getThrowInfoRelativeType(CGM.Int8PtrTy)  // CopyCtor
+     };
+     CatchableTypeType = llvm::StructType::create(
+         CGM.getLLVMContext(), FieldTypes, "eh.CatchableType");
+@@ -759,7 +790,7 @@ public:
+ 
+     llvm::SmallString<23> CTATypeName("eh.CatchableTypeArray.");
+     CTATypeName += llvm::utostr(NumEntries);
+-    llvm::Type *CTType = getImageRelativeType(CGM.DefaultPtrTy);
++    llvm::Type *CTType = getThrowInfoRelativeType(CGM.DefaultPtrTy);
+     llvm::Type *FieldTypes[] = {
+         CGM.IntTy,                               // NumEntries
+         llvm::ArrayType::get(CTType, NumEntries) // CatchableTypes
+@@ -773,10 +804,10 @@ public:
+     if (ThrowInfoType)
+       return ThrowInfoType;
+     llvm::Type *FieldTypes[] = {
+-        CGM.IntTy,                           // Flags
+-        getImageRelativeType(CGM.Int8PtrTy), // CleanupFn
+-        getImageRelativeType(CGM.Int8PtrTy), // ForwardCompat
+-        getImageRelativeType(CGM.Int8PtrTy)  // CatchableTypeArray
++        CGM.IntTy,                               // Flags
++        getThrowInfoRelativeType(CGM.Int8PtrTy), // CleanupFn
++        getThrowInfoRelativeType(CGM.Int8PtrTy), // ForwardCompat
++        getThrowInfoRelativeType(CGM.Int8PtrTy)  // CatchableTypeArray
+     };
+     ThrowInfoType = llvm::StructType::create(CGM.getLLVMContext(), FieldTypes,
+                                              "eh.ThrowInfo");
+@@ -4264,11 +4295,12 @@ llvm::Constant *MicrosoftCXXABI::getCatchableType(QualType T,
+                                               VBPtrOffset, VBIndex, Out);
+   }
+   if (llvm::GlobalVariable *GV = CGM.getModule().getNamedGlobal(MangledName))
+-    return getImageRelativeConstant(GV);
++    return getThrowInfoRelativeConstant(GV);
+ 
+   // The TypeDescriptor is used by the runtime to determine if a catch handler
+   // is appropriate for the exception object.
+-  llvm::Constant *TD = getImageRelativeConstant(getAddrOfRTTIDescriptor(T));
++  llvm::Constant *TD =
++      getThrowInfoRelativeConstant(getAddrOfRTTIDescriptor(T));
+ 
+   // The runtime is responsible for calling the copy constructor if the
+   // exception is caught by value.
+@@ -4281,7 +4313,7 @@ llvm::Constant *MicrosoftCXXABI::getCatchableType(QualType T,
+   } else {
+     CopyCtor = llvm::Constant::getNullValue(CGM.Int8PtrTy);
+   }
+-  CopyCtor = getImageRelativeConstant(CopyCtor);
++  CopyCtor = getThrowInfoRelativeConstant(CopyCtor);
+ 
+   bool IsScalar = !RD;
+   bool HasVirtualBases = false;
+@@ -4322,7 +4354,7 @@ llvm::Constant *MicrosoftCXXABI::getCatchableType(QualType T,
+   GV->setSection(".xdata");
+   if (GV->isWeakForLinker())
+     GV->setComdat(CGM.getModule().getOrInsertComdat(GV->getName()));
+-  return getImageRelativeConstant(GV);
++  return getThrowInfoRelativeConstant(GV);
+ }
+ 
+ llvm::GlobalVariable *MicrosoftCXXABI::getCatchableTypeArray(QualType T) {
+@@ -4418,7 +4450,7 @@ llvm::GlobalVariable *MicrosoftCXXABI::getCatchableTypeArray(QualType T) {
+     CatchableTypes.insert(getCatchableType(getContext().VoidPtrTy));
+ 
+   uint32_t NumEntries = CatchableTypes.size();
+-  llvm::Type *CTType = getImageRelativeType(CGM.DefaultPtrTy);
++  llvm::Type *CTType = getThrowInfoRelativeType(CGM.DefaultPtrTy);
+   llvm::ArrayType *AT = llvm::ArrayType::get(CTType, NumEntries);
+   llvm::StructType *CTAType = getCatchableTypeArrayType(NumEntries);
+   llvm::Constant *Fields[] = {
+@@ -4488,13 +4520,13 @@ llvm::GlobalVariable *MicrosoftCXXABI::getThrowInfo(QualType T) {
+       if (!DtorD->isTrivial())
+         CleanupFn = CGM.getAddrOfCXXStructor(GlobalDecl(DtorD, Dtor_Complete));
+   // This is unused as far as we can tell, initialize it to null.
+-  llvm::Constant *ForwardCompat =
+-      getImageRelativeConstant(llvm::Constant::getNullValue(CGM.Int8PtrTy));
+-  llvm::Constant *PointerToCatchableTypes = getImageRelativeConstant(CTA);
++  llvm::Constant *ForwardCompat = getThrowInfoRelativeConstant(
++      llvm::Constant::getNullValue(CGM.Int8PtrTy));
++  llvm::Constant *PointerToCatchableTypes = getThrowInfoRelativeConstant(CTA);
+   llvm::StructType *TIType = getThrowInfoType();
+   llvm::Constant *Fields[] = {
+       llvm::ConstantInt::get(CGM.IntTy, Flags), // Flags
+-      getImageRelativeConstant(CleanupFn),      // CleanupFn
++      getThrowInfoRelativeConstant(CleanupFn),  // CleanupFn
+       ForwardCompat,                            // ForwardCompat
+       PointerToCatchableTypes                   // CatchableTypeArray
+   };
+diff --git a/clang/test/CodeGenCXX/microsoft-abi-throw-arm.cpp b/clang/test/CodeGenCXX/microsoft-abi-throw-arm.cpp
+new file mode 100644
+index 000000000..cd106f9b1
+--- /dev/null
++++ b/clang/test/CodeGenCXX/microsoft-abi-throw-arm.cpp
+@@ -0,0 +1,53 @@
++// The C++ throw information is image-relative on 32-bit Arm Windows, as on the
++// 64-bit targets: MSVC's runtime adds the image base to every field of the
++// ThrowInfo, of the CatchableTypeArray and of each CatchableType
++// (_EH_RELATIVE_TYPEINFO is 1 for _M_ARM in ehdata_forceinclude.h). The RTTI
++// stays absolute there, as MSVC's does (_RTTI_RELATIVE_TYPEINFO is 0). 32-bit
++// x86 keeps absolute pointers in both.
++
++// RUN: %clang_cc1 -emit-llvm -o - -triple=thumbv7-windows-msvc -std=c++17 %s -fcxx-exceptions -fexceptions -fms-extensions | FileCheck %s --check-prefix=ARM
++// RUN: %clang_cc1 -emit-llvm -o - -triple=i686-windows-msvc -std=c++17 %s -fcxx-exceptions -fexceptions -fms-extensions | FileCheck %s --check-prefix=X86 --implicit-check-not=__ImageBase
++
++// ARM-DAG: %eh.CatchableType = type { i32, i32, i32, i32, i32, i32, i32 }
++// ARM-DAG: %eh.CatchableTypeArray.1 = type { i32, [1 x i32] }
++// ARM-DAG: %eh.CatchableTypeArray.2 = type { i32, [2 x i32] }
++// ARM-DAG: %eh.ThrowInfo = type { i32, i32, i32, i32 }
++// ARM-DAG: %rtti.CompleteObjectLocator = type { i32, i32, i32, ptr, ptr }
++// ARM-DAG: %rtti.ClassHierarchyDescriptor = type { i32, i32, i32, ptr }
++// ARM-DAG: %rtti.BaseClassDescriptor = type { ptr, i32, i32, i32, i32, i32, ptr }
++
++// ARM-DAG: @"_CT??_R0?AUD@@@8??0D@@QAA@ABU0@@Z4" = linkonce_odr unnamed_addr constant %eh.CatchableType { i32 0, i32 sub nuw nsw (i32 ptrtoint (ptr @"??_R0?AUD@@@8" to i32), i32 ptrtoint (ptr @__ImageBase to i32)), i32 0, i32 -1, i32 0, i32 4, i32 sub nuw nsw (i32 ptrtoint (ptr @"??0D@@QAA@ABU0@@Z" to i32), i32 ptrtoint (ptr @__ImageBase to i32)) }, section ".xdata", comdat
++// ARM-DAG: @"_CTA2?AUD@@" = linkonce_odr unnamed_addr constant %eh.CatchableTypeArray.2 { i32 2, [2 x i32] [i32 sub nuw nsw (i32 ptrtoint (ptr @"_CT??_R0?AUD@@@8??0D@@QAA@ABU0@@Z4" to i32), i32 ptrtoint (ptr @__ImageBase to i32)), i32 sub nuw nsw (i32 ptrtoint (ptr @"_CT??_R0?AUB@@@8??0B@@QAA@ABU0@@Z4" to i32), i32 ptrtoint (ptr @__ImageBase to i32))] }, section ".xdata", comdat
++// ARM-DAG: @"_TI2?AUD@@" = linkonce_odr unnamed_addr constant %eh.ThrowInfo { i32 0, i32 sub nuw nsw (i32 ptrtoint (ptr @"??1D@@UAA@XZ" to i32), i32 ptrtoint (ptr @__ImageBase to i32)), i32 0, i32 sub nuw nsw (i32 ptrtoint (ptr @"_CTA2?AUD@@" to i32), i32 ptrtoint (ptr @__ImageBase to i32)) }, section ".xdata", comdat
++// ARM-DAG: @"_CT??_R0H@84" = linkonce_odr unnamed_addr constant %eh.CatchableType { i32 1, i32 sub nuw nsw (i32 ptrtoint (ptr @"??_R0H@8" to i32), i32 ptrtoint (ptr @__ImageBase to i32)), i32 0, i32 -1, i32 0, i32 4, i32 0 }, section ".xdata", comdat
++// ARM-DAG: @_TI1H = linkonce_odr unnamed_addr constant %eh.ThrowInfo { i32 0, i32 0, i32 0, i32 sub nuw nsw (i32 ptrtoint (ptr @_CTA1H to i32), i32 ptrtoint (ptr @__ImageBase to i32)) }, section ".xdata", comdat
++// ARM-DAG: @"??_R4B@@6B@" = linkonce_odr constant %rtti.CompleteObjectLocator { i32 0, i32 0, i32 0, ptr @"??_R0?AUB@@@8", ptr @"??_R3B@@8" }, comdat
++// ARM-DAG: @"??_R1A@?0A@EA@B@@8" = linkonce_odr constant %rtti.BaseClassDescriptor { ptr @"??_R0?AUB@@@8", i32 0, i32 0, i32 -1, i32 0, i32 64, ptr @"??_R3B@@8" }, comdat
++// ARM-DAG: @__ImageBase = external dso_local constant i8
++
++// X86-DAG: %eh.CatchableType = type { i32, ptr, i32, i32, i32, i32, ptr }
++// X86-DAG: %eh.CatchableTypeArray.2 = type { i32, [2 x ptr] }
++// X86-DAG: %eh.ThrowInfo = type { i32, ptr, ptr, ptr }
++// X86-DAG: @"_TI2?AUD@@" = linkonce_odr unnamed_addr constant %eh.ThrowInfo { i32 0, ptr @"??1D@@UAE@XZ", ptr null, ptr @"_CTA2?AUD@@" }, section ".xdata", comdat
++// X86-DAG: @"_CT??_R0H@84" = linkonce_odr unnamed_addr constant %eh.CatchableType { i32 1, ptr @"??_R0H@8", i32 0, i32 -1, i32 0, i32 4, ptr null }, section ".xdata", comdat
++
++struct B {
++  virtual ~B();
++};
++struct D : B {
++  D();
++  D(const D &);
++  ~D();
++};
++B::~B() {}
++
++// The throw still passes the ThrowInfo by address.
++// ARM-LABEL: define dso_local arm_aapcs_vfpcc void @"?throwD@@YAXABUD@@@Z"
++// ARM: call arm_aapcs_vfpcc void @_CxxThrowException(ptr %{{.*}}, ptr @"_TI2?AUD@@")
++// X86-LABEL: define dso_local void @"?throwD@@YAXABUD@@@Z"
++// X86: call void @_CxxThrowException(ptr %{{.*}}, ptr @"_TI2?AUD@@")
++void throwD(const D &d) { throw d; }
++
++// ARM-LABEL: define dso_local arm_aapcs_vfpcc void @"?throwInt@@YAXXZ"
++// ARM: call arm_aapcs_vfpcc void @_CxxThrowException(ptr %{{.*}}, ptr @_TI1H)
++void throwInt() { throw 1; }
+-- 
+2.53.0.windows.3
+
