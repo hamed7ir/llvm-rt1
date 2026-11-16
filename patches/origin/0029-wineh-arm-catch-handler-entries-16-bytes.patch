@@ -1,0 +1,127 @@
+From 73e73a9b9664b84c3a636529d9a5327523309b30 Mon Sep 17 00:00:00 2001
+From: hamed7ir <hamedghorbani17@live.com>
+Date: Thu, 12 Nov 2026 03:58:52 -0800
+Subject: [PATCH 29/34] 0029 WinEH: 32-bit catch handler entries have no
+ ParentFrameOffset
+
+MSVC's ARM32 runtime reads 16-byte HandlerType entries (ehdata.h has dispFrame only
+under _WIN64; MSVC's ARM32 cl writes 16 bytes). WinException wrote the 64-bit field on
+32-bit Arm too, so the second catch of a try was read 4 bytes early and jumped to
+garbage (kodi-rt's T10). From llvm/llvm-project#240693.
+---
+ llvm/lib/CodeGen/AsmPrinter/WinException.cpp |  9 ++++--
+ llvm/lib/Target/ARM/ARMFrameLowering.cpp     |  7 -----
+ llvm/lib/Target/ARM/ARMFrameLowering.h       |  1 -
+ llvm/test/CodeGen/ARM/wineh-cxx-eh.ll        | 31 +++++++++++++++++++-
+ 4 files changed, 36 insertions(+), 12 deletions(-)
+
+diff --git a/llvm/lib/CodeGen/AsmPrinter/WinException.cpp b/llvm/lib/CodeGen/AsmPrinter/WinException.cpp
+index e84ad34e1..2a553d157 100644
+--- a/llvm/lib/CodeGen/AsmPrinter/WinException.cpp
++++ b/llvm/lib/CodeGen/AsmPrinter/WinException.cpp
+@@ -827,9 +827,12 @@ void WinException::emitCXXFrameHandler3Table(const MachineFunction *MF) {
+       OS.emitValue(create32bitRef(HandlerMapXData), 4);
+     }
+ 
+-    // All funclets use the same parent frame offset currently.
++    // Only the 64-bit HandlerType has ParentFrameOffset. All funclets use the
++    // same parent frame offset currently.
++    bool EmitParentFrameOffset =
++        shouldEmitPersonality && Asm->TM.getTargetTriple().isArch64Bit();
+     unsigned ParentFrameOffset = 0;
+-    if (shouldEmitPersonality) {
++    if (EmitParentFrameOffset) {
+       const TargetFrameLowering *TFI = MF->getSubtarget().getFrameLowering();
+       ParentFrameOffset = TFI->getWinEHParentFrameOffset(*MF);
+     }
+@@ -875,7 +878,7 @@ void WinException::emitCXXFrameHandler3Table(const MachineFunction *MF) {
+         AddComment("Handler");
+         OS.emitValue(create32bitRef(HandlerSym), 4);
+ 
+-        if (shouldEmitPersonality) {
++        if (EmitParentFrameOffset) {
+           AddComment("ParentFrameOffset");
+           OS.emitInt32(ParentFrameOffset);
+         }
+diff --git a/llvm/lib/Target/ARM/ARMFrameLowering.cpp b/llvm/lib/Target/ARM/ARMFrameLowering.cpp
+index 9106ecff1..3a48cb6db 100644
+--- a/llvm/lib/Target/ARM/ARMFrameLowering.cpp
++++ b/llvm/lib/Target/ARM/ARMFrameLowering.cpp
+@@ -1604,13 +1604,6 @@ StackOffset ARMFrameLowering::getFrameIndexReferencePreferSP(
+                                                              IgnoreSPUpdates);
+ }
+ 
+-/// Catch handlers' frame displacement (HandlerType::dispFrame): MSVC emits 0
+-/// and the ARM runtime does not read it.
+-unsigned
+-ARMFrameLowering::getWinEHParentFrameOffset(const MachineFunction &MF) const {
+-  return 0;
+-}
+-
+ StackOffset
+ ARMFrameLowering::getNonLocalFrameIndexReference(const MachineFunction &MF,
+                                                  int FI) const {
+diff --git a/llvm/lib/Target/ARM/ARMFrameLowering.h b/llvm/lib/Target/ARM/ARMFrameLowering.h
+index 0de1a3f43..9710c8d28 100644
+--- a/llvm/lib/Target/ARM/ARMFrameLowering.h
++++ b/llvm/lib/Target/ARM/ARMFrameLowering.h
+@@ -58,7 +58,6 @@ public:
+   StackOffset getFrameIndexReferencePreferSP(const MachineFunction &MF, int FI,
+                                              Register &FrameReg,
+                                              bool IgnoreSPUpdates) const override;
+-  unsigned getWinEHParentFrameOffset(const MachineFunction &MF) const override;
+ 
+   void getCalleeSaves(const MachineFunction &MF,
+                       BitVector &SavedRegs) const override;
+diff --git a/llvm/test/CodeGen/ARM/wineh-cxx-eh.ll b/llvm/test/CodeGen/ARM/wineh-cxx-eh.ll
+index 284dd2108..b4a3d9d1d 100644
+--- a/llvm/test/CodeGen/ARM/wineh-cxx-eh.ll
++++ b/llvm/test/CodeGen/ARM/wineh-cxx-eh.ll
+@@ -57,6 +57,36 @@ cleanup:
+   cleanupret from %p unwind to caller
+ }
+ 
++; Two catch handlers. 32-bit HandlerType entries are 16 bytes: there is no
++; ParentFrameOffset, which only the 64-bit layout has.
++define i32 @two_catches() personality ptr @__CxxFrameHandler3 {
++; CHECK-LABEL: two_catches:
++; CHECK:       $handlerMap$0$two_catches:
++; CHECK-NEXT:  .long 8 @ Adjectives
++; CHECK-NEXT:  .long "??_R0?AUE@@@8"@imgrel @ Type
++; CHECK-NEXT:  .long {{-[0-9]+}} @ CatchObjOffset
++; CHECK-NEXT:  .long "?catch${{[0-9]+}}@?0?two_catches@4HA"@imgrel @ Handler
++; CHECK-NEXT:  .long 64 @ Adjectives
++; CHECK-NEXT:  .long 0 @ Type
++; CHECK-NEXT:  .long 0 @ CatchObjOffset
++; CHECK-NEXT:  .long "?catch${{[0-9]+}}@?0?two_catches@4HA"@imgrel @ Handler
++; CHECK-NOT:   ParentFrameOffset
++entry:
++  %e = alloca ptr, align 4
++  invoke void @g() to label %done unwind label %dispatch
++dispatch:
++  %cs = catchswitch within none [label %catch.e, label %catch.all] unwind to caller
++catch.e:
++  %cp1 = catchpad within %cs [ptr @"??_R0?AUE@@@8", i32 8, ptr %e]
++  catchret from %cp1 to label %done
++catch.all:
++  %cp2 = catchpad within %cs [ptr null, i32 64, ptr null]
++  catchret from %cp2 to label %done
++done:
++  %r = phi i32 [ 0, %entry ], [ 1, %catch.e ], [ 2, %catch.all ]
++  ret i32 %r
++}
++
+ ; catch (...) without a catch object.
+ define i32 @catch_all() personality ptr @__CxxFrameHandler3 {
+ ; CHECK-LABEL: catch_all:
+@@ -80,7 +110,6 @@ define i32 @catch_all() personality ptr @__CxxFrameHandler3 {
+ ; CHECK-NEXT:  .long 0 @ Type
+ ; CHECK-NEXT:  .long 0 @ CatchObjOffset
+ ; CHECK-NEXT:  .long "?catch$3@?0?catch_all@4HA"@imgrel @ Handler
+-; CHECK-NEXT:  .long 0 @ ParentFrameOffset
+ entry:
+   invoke void @g() to label %done unwind label %dispatch
+ dispatch:
+-- 
+2.53.0.windows.3
+

@@ -2160,6 +2160,27 @@ index 000000000..c751ddbeb
 +  .p2align 2
 +__security_cookie:
 +  .long 0
+diff --git a/llvm/include/llvm/CodeGen/MachineBasicBlock.h b/llvm/include/llvm/CodeGen/MachineBasicBlock.h
+index 47430a100..ab094a24f 100644
+--- a/llvm/include/llvm/CodeGen/MachineBasicBlock.h
++++ b/llvm/include/llvm/CodeGen/MachineBasicBlock.h
+@@ -984,10 +984,13 @@ public:
+     return !empty() && back().isReturn();
+   }
+ 
+-  /// Convenience function that returns true if the bock ends in a EH scope
+-  /// return instruction.
++  /// Convenience function that returns true if one of the block's terminators
++  /// is an EH scope return instruction. Other terminators can follow it, such
++  /// as the Windows unwind pseudos after a return on ARM.
+   bool isEHScopeReturnBlock() const {
+-    return !empty() && back().isEHScopeReturn();
++    return llvm::any_of(terminators(), [](const MachineInstr &MI) {
++      return MI.isEHScopeReturn();
++    });
+   }
+ 
+   /// Split a basic block into 2 pieces at \p SplitPoint. A new block will be
 diff --git a/llvm/include/llvm/MC/MCRegisterInfo.h b/llvm/include/llvm/MC/MCRegisterInfo.h
 index 9b894f5b6..573962e7b 100644
 --- a/llvm/include/llvm/MC/MCRegisterInfo.h
@@ -2236,6 +2257,34 @@ index 193379d71..1ad5ec596 100644
      DR.InMemory = !Location->LoadChain.empty();
      DR.DataOffset = 0;
      DR.DerefOffset = LocalVarDef::NoDeref;
+diff --git a/llvm/lib/CodeGen/AsmPrinter/WinException.cpp b/llvm/lib/CodeGen/AsmPrinter/WinException.cpp
+index e84ad34e1..2a553d157 100644
+--- a/llvm/lib/CodeGen/AsmPrinter/WinException.cpp
++++ b/llvm/lib/CodeGen/AsmPrinter/WinException.cpp
+@@ -827,9 +827,12 @@ void WinException::emitCXXFrameHandler3Table(const MachineFunction *MF) {
+       OS.emitValue(create32bitRef(HandlerMapXData), 4);
+     }
+ 
+-    // All funclets use the same parent frame offset currently.
++    // Only the 64-bit HandlerType has ParentFrameOffset. All funclets use the
++    // same parent frame offset currently.
++    bool EmitParentFrameOffset =
++        shouldEmitPersonality && Asm->TM.getTargetTriple().isArch64Bit();
+     unsigned ParentFrameOffset = 0;
+-    if (shouldEmitPersonality) {
++    if (EmitParentFrameOffset) {
+       const TargetFrameLowering *TFI = MF->getSubtarget().getFrameLowering();
+       ParentFrameOffset = TFI->getWinEHParentFrameOffset(*MF);
+     }
+@@ -875,7 +878,7 @@ void WinException::emitCXXFrameHandler3Table(const MachineFunction *MF) {
+         AddComment("Handler");
+         OS.emitValue(create32bitRef(HandlerSym), 4);
+ 
+-        if (shouldEmitPersonality) {
++        if (EmitParentFrameOffset) {
+           AddComment("ParentFrameOffset");
+           OS.emitInt32(ParentFrameOffset);
+         }
 diff --git a/llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp b/llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp
 index 67e16dcb4..478685084 100644
 --- a/llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp
@@ -2338,7 +2387,7 @@ index 08caef841..eaf71ba84 100644
  void initializeARMSLSHardeningPass(PassRegistry &);
  void initializeMVEGatherScatterLoweringPass(PassRegistry &);
 diff --git a/llvm/lib/Target/ARM/ARMAsmPrinter.cpp b/llvm/lib/Target/ARM/ARMAsmPrinter.cpp
-index b067c1e60..7ebeb9cc9 100644
+index b067c1e60..09d6cb6b1 100644
 --- a/llvm/lib/Target/ARM/ARMAsmPrinter.cpp
 +++ b/llvm/lib/Target/ARM/ARMAsmPrinter.cpp
 @@ -545,6 +545,12 @@ void ARMAsmPrinter::emitStartOfAsmFile(Module &M) {
@@ -2354,11 +2403,72 @@ index b067c1e60..7ebeb9cc9 100644
    // Use the triple's architecture and subarchitecture to determine
    // if we're thumb for the purposes of the top level code16 state.
    if (!M.getModuleInlineAsm().empty() && TT.isThumb())
+@@ -2040,6 +2046,15 @@ void ARMAsmPrinter::emitInstruction(const MachineInstr *MI) {
+       .addReg(MI->getOperand(3).getReg()));
+     return;
+   }
++  case ARM::CATCHRET:
++    // A catch funclet returns to the runtime: bx lr.
++    if (AFI->isThumbFunction())
++      EmitToStreamer(
++          *OutStreamer,
++          MCInstBuilder(ARM::tBX).addReg(ARM::LR).addImm(ARMCC::AL).addReg(0));
++    else
++      EmitToStreamer(*OutStreamer, MCInstBuilder(ARM::BX).addReg(ARM::LR));
++    return;
+   // Darwin call instructions are just normal call instructions with different
+   // clobber semantics (they clobber R9).
+   case ARM::BX_CALL: {
+diff --git a/llvm/lib/Target/ARM/ARMBaseInstrInfo.cpp b/llvm/lib/Target/ARM/ARMBaseInstrInfo.cpp
+index a922024b0..b6213f49f 100644
+--- a/llvm/lib/Target/ARM/ARMBaseInstrInfo.cpp
++++ b/llvm/lib/Target/ARM/ARMBaseInstrInfo.cpp
+@@ -109,7 +109,8 @@ static const ARM_MLxEntry ARM_MLxTable[] = {
+ 
+ ARMBaseInstrInfo::ARMBaseInstrInfo(const ARMSubtarget &STI,
+                                    const ARMBaseRegisterInfo &TRI)
+-    : ARMGenInstrInfo(STI, TRI, ARM::ADJCALLSTACKDOWN, ARM::ADJCALLSTACKUP),
++    : ARMGenInstrInfo(STI, TRI, ARM::ADJCALLSTACKDOWN, ARM::ADJCALLSTACKUP,
++                      ARM::CATCHRET),
+       Subtarget(STI) {
+   for (unsigned i = 0, e = std::size(ARM_MLxTable); i != e; ++i) {
+     if (!MLxEntryMap.insert(std::make_pair(ARM_MLxTable[i].MLxOpc, i)).second)
+@@ -620,6 +621,7 @@ unsigned ARMBaseInstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
+   case TargetOpcode::BUNDLE:
+     return getInstBundleSize(MI);
+   case TargetOpcode::COPY:
++  case ARM::CATCHRET:
+     if (!MF->getInfo<ARMFunctionInfo>()->isThumbFunction())
+       return 4;
+     else
+diff --git a/llvm/lib/Target/ARM/ARMConstantIslandPass.cpp b/llvm/lib/Target/ARM/ARMConstantIslandPass.cpp
+index 97db51129..aa72848b3 100644
+--- a/llvm/lib/Target/ARM/ARMConstantIslandPass.cpp
++++ b/llvm/lib/Target/ARM/ARMConstantIslandPass.cpp
+@@ -448,6 +448,18 @@ bool ARMConstantIslands::runOnMachineFunction(MachineFunction &mf) {
+   if (!T2JumpTables.empty())
+     MF->ensureAlignment(Align(4));
+ 
++  // Funclet entries are aligned to the function's preferred alignment when
++  // they are emitted (WinException::beginFunclet), so count that padding.
++  if (MF->hasEHFunclets()) {
++    const Align FuncletAlign = MF->getPreferredAlignment();
++    for (MachineBasicBlock &MBB : *MF) {
++      if (MBB.isEHFuncletEntry() && MBB.getAlignment() < FuncletAlign) {
++        MBB.setAlignment(FuncletAlign);
++        BBUtils->adjustBBOffsetsAfter(MBB.getPrevNode());
++      }
++    }
++  }
++
+   /// Remove dead constant pool entries.
+   MadeChange |= removeUnusedCPEntries();
+ 
 diff --git a/llvm/lib/Target/ARM/ARMExpandPseudoInsts.cpp b/llvm/lib/Target/ARM/ARMExpandPseudoInsts.cpp
-index bbbe3a01b..fc73e99e3 100644
+index bbbe3a01b..4f077a106 100644
 --- a/llvm/lib/Target/ARM/ARMExpandPseudoInsts.cpp
 +++ b/llvm/lib/Target/ARM/ARMExpandPseudoInsts.cpp
-@@ -2258,6 +2258,39 @@ bool ARMExpandPseudo::ExpandMI(MachineBasicBlock &MBB,
+@@ -2258,6 +2258,40 @@ bool ARMExpandPseudo::ExpandMI(MachineBasicBlock &MBB,
      case ARM::CLEANUPRET:
      case ARM::CATCHRET: {
        unsigned RetOpcode = STI->isThumb() ? ARM::tBX_RET : ARM::BX_RET;
@@ -2370,7 +2480,8 @@ index bbbe3a01b..fc73e99e3 100644
 +        MachineBasicBlock *TargetMBB = MI.getOperand(0).getMBB();
 +        MachineBasicBlock::iterator InsertPt = MBBI;
 +        while (InsertPt != MBB.begin() &&
-+               std::prev(InsertPt)->getFlag(MachineInstr::FrameDestroy))
++               (std::prev(InsertPt)->isDebugInstr() ||
++                std::prev(InsertPt)->getFlag(MachineInstr::FrameDestroy)))
 +          --InsertPt;
 +        MCSymbol *Sym = TargetMBB->getSymbol();
 +        bool IsThumb = STI->isThumb();
@@ -2389,17 +2500,17 @@ index bbbe3a01b..fc73e99e3 100644
 +        // adjacent: bundle them, as the MOV32 expansion does on Windows.
 +        finalizeBundle(MBB, Lo->getIterator(), std::next(Hi->getIterator()));
 +        TargetMBB->setMachineBlockAddressTaken();
-+        BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(RetOpcode))
-+            .add(predOps(ARMCC::AL))
-+            .addReg(ARM::R0, RegState::Implicit);
-+        MI.eraseFromParent();
++        // Keep the CATCHRET, which ends the EH scope, for FuncletLayout; the
++        // AsmPrinter lowers it to the return.
++        MI.addOperand(MachineOperand::CreateReg(ARM::R0, /*isDef=*/false,
++                                                /*isImp=*/true));
 +        return true;
 +      }
        BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(RetOpcode))
            .add(predOps(ARMCC::AL));
        MI.eraseFromParent();
 diff --git a/llvm/lib/Target/ARM/ARMFrameLowering.cpp b/llvm/lib/Target/ARM/ARMFrameLowering.cpp
-index 553e4ed6e..9106ecff1 100644
+index 553e4ed6e..3a48cb6db 100644
 --- a/llvm/lib/Target/ARM/ARMFrameLowering.cpp
 +++ b/llvm/lib/Target/ARM/ARMFrameLowering.cpp
 @@ -121,6 +121,7 @@
@@ -2423,7 +2534,7 @@ index 553e4ed6e..9106ecff1 100644
  #include "llvm/IR/Function.h"
  #include "llvm/IR/Module.h"
  #include "llvm/MC/MCAsmInfo.h"
-@@ -1586,6 +1590,27 @@ StackOffset ARMFrameLowering::getFrameIndexReference(const MachineFunction &MF,
+@@ -1586,6 +1590,20 @@ StackOffset ARMFrameLowering::getFrameIndexReference(const MachineFunction &MF,
    return StackOffset::getFixed(ResolveFrameIndexReference(MF, FI, FrameReg, 0));
  }
  
@@ -2441,17 +2552,10 @@ index 553e4ed6e..9106ecff1 100644
 +                                                             IgnoreSPUpdates);
 +}
 +
-+/// Catch handlers' frame displacement (HandlerType::dispFrame): MSVC emits 0
-+/// and the ARM runtime does not read it.
-+unsigned
-+ARMFrameLowering::getWinEHParentFrameOffset(const MachineFunction &MF) const {
-+  return 0;
-+}
-+
  StackOffset
  ARMFrameLowering::getNonLocalFrameIndexReference(const MachineFunction &MF,
                                                   int FI) const {
-@@ -1628,6 +1653,19 @@ int ARMFrameLowering::ResolveFrameIndexReference(const MachineFunction &MF,
+@@ -1628,6 +1646,19 @@ int ARMFrameLowering::ResolveFrameIndexReference(const MachineFunction &MF,
      return Offset;
    }
  
@@ -2471,7 +2575,7 @@ index 553e4ed6e..9106ecff1 100644
    // If there is a frame pointer, use it when we can.
    if (hasFP(MF) && AFI->hasStackFrame()) {
      // Use frame pointer to reference fixed objects. Use it for locals if
-@@ -2751,6 +2789,19 @@ void ARMFrameLowering::determineCalleeSaves(MachineFunction &MF,
+@@ -2751,6 +2782,19 @@ void ARMFrameLowering::determineCalleeSaves(MachineFunction &MF,
                                              BitVector &SavedRegs,
                                              RegScavenger *RS) const {
    TargetFrameLowering::determineCalleeSaves(MF, SavedRegs, RS);
@@ -2491,7 +2595,7 @@ index 553e4ed6e..9106ecff1 100644
    // This tells PEI to spill the FP as if it is any other callee-save register
    // to take advantage the eliminateFrameIndex machinery. This also ensures it
    // is spilled in the order specified by getCalleeSavedRegs() to make it easier
-@@ -3031,9 +3082,11 @@ void ARMFrameLowering::determineCalleeSaves(MachineFunction &MF,
+@@ -3031,9 +3075,11 @@ void ARMFrameLowering::determineCalleeSaves(MachineFunction &MF,
      if (HasFP || (isFPReserved(MF) && AFI->getNumAlignedDPRCS2Regs() > 0)) {
        SavedRegs.set(FramePtr);
        // If the frame pointer is required by the ABI, also spill LR so that we
@@ -2505,7 +2609,7 @@ index 553e4ed6e..9106ecff1 100644
            !LRSpilled) {
          SavedRegs.set(ARM::LR);
          LRSpilled = true;
-@@ -3324,6 +3377,65 @@ void ARMFrameLowering::processFunctionBeforeFrameFinalized(
+@@ -3324,6 +3370,65 @@ void ARMFrameLowering::processFunctionBeforeFrameFinalized(
      MachineFunction &MF, RegScavenger *RS) const {
    TargetFrameLowering::processFunctionBeforeFrameFinalized(MF, RS);
    updateLRRestored(MF);
@@ -2572,17 +2676,16 @@ index 553e4ed6e..9106ecff1 100644
  
  void ARMFrameLowering::getCalleeSaves(const MachineFunction &MF,
 diff --git a/llvm/lib/Target/ARM/ARMFrameLowering.h b/llvm/lib/Target/ARM/ARMFrameLowering.h
-index 7021af0d9..0de1a3f43 100644
+index 7021af0d9..9710c8d28 100644
 --- a/llvm/lib/Target/ARM/ARMFrameLowering.h
 +++ b/llvm/lib/Target/ARM/ARMFrameLowering.h
-@@ -55,6 +55,10 @@ public:
+@@ -55,6 +55,9 @@ public:
                                               int FI) const override;
    int ResolveFrameIndexReference(const MachineFunction &MF, int FI,
                                   Register &FrameReg, int SPAdj) const;
 +  StackOffset getFrameIndexReferencePreferSP(const MachineFunction &MF, int FI,
 +                                             Register &FrameReg,
 +                                             bool IgnoreSPUpdates) const override;
-+  unsigned getWinEHParentFrameOffset(const MachineFunction &MF) const override;
  
    void getCalleeSaves(const MachineFunction &MF,
                        BitVector &SavedRegs) const override;
@@ -2784,6 +2887,20 @@ index 10f5442d7..f8621c125 100644
      SDValue LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const;
      SDValue LowerShiftRightParts(SDValue Op, SelectionDAG &DAG) const;
      SDValue LowerShiftLeftParts(SDValue Op, SelectionDAG &DAG) const;
+diff --git a/llvm/lib/Target/ARM/ARMInstrInfo.td b/llvm/lib/Target/ARM/ARMInstrInfo.td
+index 4ba7a447e..69dad4b2f 100644
+--- a/llvm/lib/Target/ARM/ARMInstrInfo.td
++++ b/llvm/lib/Target/ARM/ARMInstrInfo.td
+@@ -6747,7 +6747,8 @@ let isPseudo = 1 in {
+ }
+ 
+ // C++ Exception / SEH Pseudo Instructions
+-let isTerminator = 1, isReturn = 1, isBarrier = 1, isCodeGenOnly = 1, hasNoSchedulingInfo = 1 in {
++let isTerminator = 1, isReturn = 1, isBarrier = 1, isCodeGenOnly = 1,
++    hasNoSchedulingInfo = 1, isEHScopeReturn = 1 in {
+   def CLEANUPRET : PseudoInst<(outs), (ins), NoItinerary, [(cleanupret bb)]>, Sched<[]>;
+   def CATCHRET : PseudoInst<(outs), (ins arm_br_target:$dst, arm_br_target:$src), NoItinerary, [(catchret bb:$dst, bb:$src)]>, Sched<[]>;
+ }
 diff --git a/llvm/lib/Target/ARM/ARMLoadStoreOptimizer.cpp b/llvm/lib/Target/ARM/ARMLoadStoreOptimizer.cpp
 index 8cdf2482b..2fe50973e 100644
 --- a/llvm/lib/Target/ARM/ARMLoadStoreOptimizer.cpp
@@ -3025,7 +3142,7 @@ index 4893d8d3a..27bb399e9 100644
  
    // Returns SplitR11WindowsSEH when the stack pointer needs to be
 diff --git a/llvm/lib/Target/ARM/ARMTargetMachine.cpp b/llvm/lib/Target/ARM/ARMTargetMachine.cpp
-index 7a91884b9..d21029bdd 100644
+index 7a91884b9..c209ed02e 100644
 --- a/llvm/lib/Target/ARM/ARMTargetMachine.cpp
 +++ b/llvm/lib/Target/ARM/ARMTargetMachine.cpp
 @@ -97,6 +97,7 @@ extern "C" LLVM_ABI LLVM_EXTERNAL_VISIBILITY void LLVMInitializeARMTarget() {
@@ -3036,7 +3153,22 @@ index 7a91884b9..d21029bdd 100644
    initializeARMBranchTargetsPass(Registry);
    initializeARMConstantIslandsPass(Registry);
    initializeARMExecutionDomainFixPass(Registry);
-@@ -399,6 +400,11 @@ void ARMPassConfig::addCodeGenPrepare() {
+@@ -185,6 +186,14 @@ ARMBaseTargetMachine::ARMBaseTargetMachine(const Target &T, const Triple &TT,
+     this->Options.NoTrapAfterNoreturn = true;
+   }
+ 
++  // With Windows unwind info, the unwinder finds the function or funclet of a
++  // frame from its return address, so a call must not be the last instruction
++  // of one. Trap after noreturn calls, as MSVC does.
++  if (TT.isOSWindows()) {
++    this->Options.TrapUnreachable = true;
++    this->Options.NoTrapAfterNoreturn = false;
++  }
++
+   // ARM supports the debug entry values.
+   setSupportsDebugEntryValues(true);
+ 
+@@ -399,6 +408,11 @@ void ARMPassConfig::addCodeGenPrepare() {
  }
  
  bool ARMPassConfig::addPreISel() {
@@ -3405,6 +3537,387 @@ index f990920e2..450965455 100644
 +  %and = and i8 %eqz, %c
 +  %or = or i8 %ultz, %and
 +  ret i8 %or
++}
+diff --git a/llvm/test/CodeGen/ARM/Windows/trap-after-noreturn.ll b/llvm/test/CodeGen/ARM/Windows/trap-after-noreturn.ll
+new file mode 100644
+index 000000000..c9a8ff0a3
+--- /dev/null
++++ b/llvm/test/CodeGen/ARM/Windows/trap-after-noreturn.ll
+@@ -0,0 +1,99 @@
++; With Windows unwind info, the unwinder finds the function or funclet of a
++; frame from its return address, so a call must not be the last instruction of
++; one. A trap (udf #254, as MSVC's __debugbreak) follows each noreturn call on
++; Windows.
++
++; RUN: split-file %s %t
++; RUN: llc -mtriple=thumbv7-windows-msvc < %t/noreturn.ll | FileCheck %s
++; RUN: llc -mtriple=thumbv7-windows-msvc -O0 < %t/noreturn.ll | FileCheck %s
++; RUN: llc -mtriple=thumbv7-windows-gnu < %t/noreturn.ll | FileCheck %s
++; RUN: llc -mtriple=thumbv7-linux-gnueabihf < %t/noreturn.ll | FileCheck --check-prefix=ELF %s
++; RUN: llc -mtriple=thumbv7-windows-msvc < %t/funclet.ll | FileCheck --check-prefix=FUNCLET %s
++; RUN: llc -mtriple=thumbv7-windows-msvc -O0 < %t/funclet.ll | FileCheck --check-prefix=FUNCLET %s
++
++;--- noreturn.ll
++declare void @abort() noreturn
++declare void @exit(i32) noreturn
++
++; CHECK-LABEL: {{^}}f:
++; CHECK:       bl abort
++; CHECK-NEXT:  .inst.n 0xdefe
++
++; ELF-LABEL:   {{^}}f:
++; ELF:         bl abort
++; ELF-NEXT:    .Lfunc_end0:
++define void @f() {
++  call void @abort()
++  unreachable
++}
++
++; Block placement decides which call ends the function, so both get a trap.
++; CHECK-LABEL: {{^}}g:
++; CHECK:       bl {{abort|exit}}
++; CHECK-NEXT:  .inst.n 0xdefe
++; CHECK:       bl {{abort|exit}}
++; CHECK-NEXT:  .inst.n 0xdefe
++
++; ELF-LABEL:   {{^}}g:
++; ELF-NOT:     0xdefe
++; ELF:         .Lfunc_end1:
++define void @g(i32 %x) {
++entry:
++  %c = icmp eq i32 %x, 0
++  br i1 %c, label %a, label %b
++a:
++  call void @abort()
++  unreachable
++b:
++  call void @exit(i32 1)
++  unreachable
++}
++
++;--- funclet.ll
++declare void @may_throw()
++declare void @abort() noreturn
++declare void @_CxxThrowException(ptr, ptr) noreturn
++declare i32 @__CxxFrameHandler3(...)
++
++; Each catch funclet ends with a rethrow. Without the trap, the return address
++; of the first rethrow would be the start of the second funclet.
++; FUNCLET-LABEL: "?catch$2@?0?h@4HA":
++; FUNCLET:       bl _CxxThrowException
++; FUNCLET-NEXT:  .inst.n 0xdefe
++; FUNCLET-LABEL: "?catch$3@?0?h@4HA":
++; FUNCLET:       bl _CxxThrowException
++; FUNCLET-NEXT:  .inst.n 0xdefe
++define void @h() personality ptr @__CxxFrameHandler3 {
++entry:
++  invoke void @may_throw() to label %ret unwind label %dispatch
++dispatch:
++  %cs = catchswitch within none [label %catch1, label %catch2] unwind to caller
++catch1:
++  %p1 = catchpad within %cs [ptr null, i32 0, ptr null]
++  call void @_CxxThrowException(ptr null, ptr null) [ "funclet"(token %p1) ]
++  unreachable
++catch2:
++  %p2 = catchpad within %cs [ptr null, i32 64, ptr null]
++  call void @_CxxThrowException(ptr null, ptr null) [ "funclet"(token %p2) ]
++  unreachable
++ret:
++  ret void
++}
++
++; The parent's code ends with a noreturn call and its catch funclet follows.
++; FUNCLET-LABEL: {{^}}k:
++; FUNCLET:       bl abort
++; FUNCLET-NEXT:  .inst.n 0xdefe
++; FUNCLET-LABEL: "?catch$2@?0?k@4HA":
++define void @k() personality ptr @__CxxFrameHandler3 {
++entry:
++  invoke void @may_throw() to label %cont unwind label %dispatch
++dispatch:
++  %cs = catchswitch within none [label %catch] unwind to caller
++catch:
++  %p = catchpad within %cs [ptr null, i32 64, ptr null]
++  catchret from %p to label %cont
++cont:
++  call void @abort()
++  unreachable
++}
+diff --git a/llvm/test/CodeGen/ARM/Windows/wineh-catchret-dbg-value.mir b/llvm/test/CodeGen/ARM/Windows/wineh-catchret-dbg-value.mir
+new file mode 100644
+index 000000000..dc2960bba
+--- /dev/null
++++ b/llvm/test/CodeGen/ARM/Windows/wineh-catchret-dbg-value.mir
+@@ -0,0 +1,173 @@
++# A catch funclet returns its continuation in r0. The load goes before the
++# epilogue even when a DBG_VALUE sits between the epilogue and the CATCHRET, or
++# it lands inside the SEH epilogue and the epilogue's unwind codes don't match.
++# RUN: llc -mtriple=thumbv7-windows-msvc -run-pass=arm-pseudo %s -o - | FileCheck %s
++
++# CHECK-LABEL: bb.1.catch
++# CHECK:       t2MOVi16 target-flags(arm-lo16)
++# CHECK-NEXT:  t2MOVTi16
++# CHECK-NEXT:  }
++# CHECK-NEXT:  frame-destroy SEH_EpilogStart
++# CHECK:       DBG_VALUE
++# CHECK-NEXT:  CATCHRET %bb.2, %bb.0, implicit $r0
++
++--- |
++  ; ModuleID = 'base.ll'
++  source_filename = "base.ll"
++  target datalayout = "e-m:w-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64"
++  target triple = "thumbv7-pc-windows-msvc"
++  
++  declare void @g(i32)
++  
++  declare i32 @__CxxFrameHandler3(...)
++  
++  define void @f(i32 %x) #0 personality ptr @__CxxFrameHandler3 !dbg !4 {
++  entry:
++    invoke void @g(i32 %x)
++            to label %ret unwind label %dispatch, !dbg !10
++  
++  dispatch:                                         ; preds = %entry
++    %cs = catchswitch within none [label %catch] unwind to caller
++  
++  catch:                                            ; preds = %dispatch
++    %p = catchpad within %cs [ptr null, i32 64, ptr null]
++    call void @g(i32 %x) [ "funclet"(token %p) ], !dbg !10
++    catchret from %p to label %ret, !dbg !10
++  
++  ret:                                              ; preds = %catch, %entry
++    ret void
++  }
++  
++  attributes #0 = { "no-realign-stack" }
++  
++  !llvm.dbg.cu = !{!0}
++  !llvm.module.flags = !{!2, !3}
++  
++  !0 = distinct !DICompileUnit(language: DW_LANG_C_plus_plus, file: !1, producer: "t", isOptimized: true, runtimeVersion: 0, emissionKind: FullDebug)
++  !1 = !DIFile(filename: "t.cpp", directory: "/")
++  !2 = !{i32 2, !"Debug Info Version", i32 3}
++  !3 = !{i32 2, !"CodeView", i32 1}
++  !4 = distinct !DISubprogram(name: "f", scope: !1, file: !1, line: 1, type: !5, scopeLine: 1, spFlags: DISPFlagDefinition | DISPFlagOptimized, unit: !0, retainedNodes: !7)
++  !5 = !DISubroutineType(types: !6)
++  !6 = !{null}
++  !7 = !{!8}
++  !8 = !DILocalVariable(name: "x", arg: 1, scope: !4, file: !1, line: 1, type: !9)
++  !9 = !DIBasicType(name: "int", size: 32, encoding: DW_ATE_signed)
++  !10 = !DILocation(line: 2, scope: !4)
++...
++---
++name:            f
++alignment:       2
++exposesReturnsTwice: false
++legalized:       false
++regBankSelected: false
++selected:        false
++failedISel:      false
++tracksRegLiveness: true
++hasWinCFI:       true
++noPhis:          true
++isSSA:           false
++noVRegs:         true
++hasFakeUses:     false
++callsEHReturn:   false
++callsUnwindInit: false
++hasEHContTarget: true
++hasEHScopes:     true
++hasEHFunclets:   true
++isOutlined:      false
++debugInstrRef:   false
++failsVerification: false
++tracksDebugUserValues: true
++registers:       []
++liveins:
++  - { reg: '$r0', virtual-reg: '' }
++frameInfo:
++  isFrameAddressTaken: false
++  isReturnAddressTaken: false
++  hasStackMap:     false
++  hasPatchPoint:   false
++  stackSize:       24
++  offsetAdjustment: 0
++  maxAlignment:    8
++  adjustsStack:    true
++  hasCalls:        true
++  framePointerPolicy: none
++  stackProtector:  ''
++  functionContext: ''
++  maxCallFrameSize: 0
++  cvBytesOfCalleeSavedRegisters: 0
++  hasOpaqueSPAdjustment: true
++  hasVAStart:      false
++  hasMustTailInVarArgFunc: false
++  hasTailCall:     false
++  isCalleeSavedInfoValid: true
++  localFrameSize:  0
++fixedStack:      []
++stack:
++  - { id: 0, name: '', type: spill-slot, offset: -12, size: 4, alignment: 4, 
++      stack-id: default, callee-saved-register: '', callee-saved-restored: true, 
++      debug-info-variable: '', debug-info-expression: '', debug-info-location: '' }
++  - { id: 1, name: '', type: default, offset: -24, size: 8, alignment: 8, 
++      stack-id: default, callee-saved-register: '', callee-saved-restored: true, 
++      debug-info-variable: '', debug-info-expression: '', debug-info-location: '' }
++  - { id: 2, name: '', type: spill-slot, offset: -4, size: 4, alignment: 4, 
++      stack-id: default, callee-saved-register: '$lr', callee-saved-restored: true, 
++      debug-info-variable: '', debug-info-expression: '', debug-info-location: '' }
++  - { id: 3, name: '', type: spill-slot, offset: -8, size: 4, alignment: 4, 
++      stack-id: default, callee-saved-register: '$r6', callee-saved-restored: true, 
++      debug-info-variable: '', debug-info-expression: '', debug-info-location: '' }
++entry_values:    []
++callSites:       []
++debugValueSubstitutions: []
++constants:       []
++machineFunctionInfo:
++  isLRSpilled:     true
++body:             |
++  bb.0.entry:
++    successors: %bb.2(0x7ffff800), %bb.1(0x00000800)
++    liveins: $r0, $lr
++  
++    frame-setup tPUSH 14 /* CC::al */, $noreg, killed $r6, killed $lr, implicit-def $sp, implicit $sp
++    frame-setup SEH_SaveRegs 16448, 0
++    $sp = frame-setup tSUBspi $sp, 4, 14 /* CC::al */, $noreg
++    frame-setup SEH_StackAlloc 16, 0
++    frame-setup SEH_PrologEnd
++    $r6 = tMOVr $sp, 14 /* CC::al */, $noreg
++    $r12 = t2MVNi 1, 14 /* CC::al */, $noreg, $noreg
++    t2STRi12 $r12, $r6, 0, 14 /* CC::al */, $noreg
++    t2STRi12 killed $r12, $r6, 4, 14 /* CC::al */, $noreg
++    EH_LABEL <mcsymbol >, debug-location !10
++    t2STRi12 renamable $r0, $r6, 12, 14 /* CC::al */, $noreg :: (store (s32) into %stack.0)
++    tBL 14 /* CC::al */, $noreg, @g, csr_aapcs, implicit-def dead $lr, implicit $sp, implicit $r0, implicit-def $sp, debug-location !10
++    EH_LABEL <mcsymbol >, debug-location !10
++    t2B %bb.2, 14 /* CC::al */, $noreg, debug-location !10
++  
++  bb.1.catch (landing-pad, ehfunclet-entry, ehscope-entry):
++    successors: %bb.2(0x80000000)
++    liveins: $lr
++  
++    frame-setup tPUSH 14 /* CC::al */, $noreg, killed $r6, killed $lr, implicit-def $sp, implicit $sp
++    frame-setup SEH_SaveRegs 16448, 0
++    $sp = frame-setup tSUBspi $sp, 4, 14 /* CC::al */, $noreg
++    frame-setup SEH_StackAlloc 16, 0
++    frame-setup SEH_PrologEnd
++    $r0 = t2LDRi12 $r6, 12, 14 /* CC::al */, $noreg, debug-location !10 :: (load (s32) from %stack.0)
++    tBL 14 /* CC::al */, $noreg, @g, csr_aapcs, implicit-def dead $lr, implicit $sp, implicit $r0, implicit-def $sp, debug-location !10
++    frame-destroy SEH_EpilogStart debug-location !10
++    $sp = frame-destroy tADDspi $sp, 4, 14 /* CC::al */, $noreg, debug-location !10
++    frame-destroy SEH_StackAlloc 16, 0, debug-location !10
++    $sp = frame-destroy t2LDMIA_UPD $sp, 14 /* CC::al */, $noreg, def $r6, def $lr, debug-location !10
++    frame-destroy SEH_SaveRegs 16448, 1, debug-location !10
++    DBG_VALUE $noreg, $noreg, !8, !DIExpression(), debug-location !10
++    CATCHRET %bb.2, %bb.0, debug-location !10
++    frame-destroy SEH_Nop_Ret 0, debug-location !10
++    frame-destroy SEH_EpilogEnd debug-location !10
++  
++  bb.2.ret:
++    frame-destroy SEH_EpilogStart
++    $sp = frame-destroy tADDspi $sp, 4, 14 /* CC::al */, $noreg
++    frame-destroy SEH_StackAlloc 16, 0
++    frame-destroy tPOP_RET 14 /* CC::al */, $noreg, def $r6, def $pc
++    frame-destroy SEH_SaveRegs_Ret 16448, 0
++    frame-destroy SEH_EpilogEnd
++...
+diff --git a/llvm/test/CodeGen/ARM/Windows/wineh-funclet-align.ll b/llvm/test/CodeGen/ARM/Windows/wineh-funclet-align.ll
+new file mode 100644
+index 000000000..938c562ec
+--- /dev/null
++++ b/llvm/test/CodeGen/ARM/Windows/wineh-funclet-align.ll
+@@ -0,0 +1,91 @@
++; ARMConstantIslands has to count the padding that aligns each funclet entry
++; to the function's preferred alignment (WinException::beginFunclet), or a
++; constant pool load across funclets can end up out of range.
++
++; RUN: llc -mtriple=thumbv7-windows-msvc -stop-after=arm-cp-islands < %s | FileCheck %s
++
++declare void @g(i32)
++declare void @use(float)
++declare void @dtor(ptr)
++declare i32 @__CxxFrameHandler3(...)
++
++; A constant pool makes the function 4-byte aligned, and so its funclets.
++; CHECK-LABEL: name: cp
++; CHECK:       alignment: 4
++; CHECK:       (landing-pad, ehfunclet-entry, ehscope-entry, align 4):
++define void @cp(float %v) personality ptr @__CxxFrameHandler3 {
++entry:
++  %obj = alloca i32
++  invoke void @g(i32 1) to label %cont unwind label %cleanup
++cont:
++  %m = fmul float %v, 1.234500e+03
++  call void @use(float %m)
++  call void @dtor(ptr %obj)
++  ret void
++cleanup:
++  %cp = cleanuppad within none []
++  call void @dtor(ptr %obj) [ "funclet"(token %cp) ]
++  cleanupret from %cp unwind to caller
++}
++
++; So does a jump table, which ARMConstantIslands finds only after it has
++; measured the blocks.
++; CHECK-LABEL: name: jt
++; CHECK:       alignment: 4
++; CHECK:       (landing-pad, ehfunclet-entry, ehscope-entry, align 4):
++define void @jt(i32 %v) personality ptr @__CxxFrameHandler3 {
++entry:
++  %obj = alloca i32
++  invoke void @g(i32 0) to label %cont unwind label %cleanup
++cont:
++  switch i32 %v, label %done [
++    i32 0, label %c0
++    i32 1, label %c1
++    i32 2, label %c2
++    i32 3, label %c3
++    i32 4, label %c4
++    i32 5, label %c5
++  ]
++c0:
++  call void @g(i32 10)
++  br label %done
++c1:
++  call void @g(i32 11)
++  br label %done
++c2:
++  call void @g(i32 12)
++  br label %done
++c3:
++  call void @g(i32 13)
++  br label %done
++c4:
++  call void @g(i32 14)
++  br label %done
++c5:
++  call void @g(i32 15)
++  br label %done
++done:
++  call void @dtor(ptr %obj)
++  ret void
++cleanup:
++  %cp = cleanuppad within none []
++  call void @dtor(ptr %obj) [ "funclet"(token %cp) ]
++  cleanupret from %cp unwind to caller
++}
++
++; Without either, the funclet keeps the function's alignment of 2.
++; CHECK-LABEL: name: nocp
++; CHECK:       alignment: 2
++; CHECK:       (landing-pad, ehfunclet-entry, ehscope-entry, align 2):
++define void @nocp(i32 %v) personality ptr @__CxxFrameHandler3 {
++entry:
++  %obj = alloca i32
++  invoke void @g(i32 %v) to label %cont unwind label %cleanup
++cont:
++  call void @dtor(ptr %obj)
++  ret void
++cleanup:
++  %cp = cleanuppad within none []
++  call void @dtor(ptr %obj) [ "funclet"(token %cp) ]
++  cleanupret from %cp unwind to caller
 +}
 diff --git a/llvm/test/CodeGen/ARM/addressofreturnaddress.ll b/llvm/test/CodeGen/ARM/addressofreturnaddress.ll
 new file mode 100644
@@ -4274,6 +4787,65 @@ index 000000000..f6e8bbfb0
 +}
 +
 +; FATAL: LLVM ERROR: failed to perform tail call elimination on a call site marked musttail
+diff --git a/llvm/test/CodeGen/ARM/wineh-catchret-scope.ll b/llvm/test/CodeGen/ARM/wineh-catchret-scope.ll
+new file mode 100644
+index 000000000..d6016c789
+--- /dev/null
++++ b/llvm/test/CodeGen/ARM/wineh-catchret-scope.ll
+@@ -0,0 +1,53 @@
++; RUN: llc -mtriple=thumbv7-pc-windows-msvc < %s | FileCheck %s
++; RUN: llc -O0 -mtriple=thumbv7-pc-windows-msvc < %s | FileCheck %s
++
++; The code after a catch, reached through catchret, belongs to the parent
++; function and not to the catch funclet, which returns with bx lr.
++
++declare void @g()
++declare i32 @__CxxFrameHandler3(...)
++
++; Reached from the try and from the catch.
++define void @both() personality ptr @__CxxFrameHandler3 {
++; CHECK-LABEL: both:
++; CHECK:       $ehgcr_{{[0-9_]+}}:
++; CHECK:       .seh_endproc
++; CHECK:       "?catch${{[0-9]+}}@?0?both@4HA":
++; CHECK-NOT:   $ehgcr
++; CHECK:       bx lr
++; CHECK-NOT:   $ehgcr
++; CHECK:       .seh_endproc
++entry:
++  invoke void @g() to label %done unwind label %dispatch
++dispatch:
++  %cs = catchswitch within none [label %catch] unwind to caller
++catch:
++  %cp = catchpad within %cs [ptr null, i32 64, ptr null]
++  catchret from %cp to label %done
++done:
++  ret void
++}
++
++; Reached only from the catch.
++define void @only_catch() personality ptr @__CxxFrameHandler3 {
++; CHECK-LABEL: only_catch:
++; CHECK:       $ehgcr_{{[0-9_]+}}:
++; CHECK:       .seh_endproc
++; CHECK:       "?catch${{[0-9]+}}@?0?only_catch@4HA":
++; CHECK-NOT:   $ehgcr
++; CHECK:       bx lr
++; CHECK-NOT:   $ehgcr
++; CHECK:       .seh_endproc
++entry:
++  invoke void @g() to label %unreachable unwind label %dispatch
++dispatch:
++  %cs = catchswitch within none [label %catch] unwind to caller
++catch:
++  %cp = catchpad within %cs [ptr null, i32 64, ptr null]
++  catchret from %cp to label %done
++done:
++  call void @g()
++  ret void
++unreachable:
++  unreachable
++}
 diff --git a/llvm/test/CodeGen/ARM/wineh-cxx-eh-align-catchobj.ll b/llvm/test/CodeGen/ARM/wineh-cxx-eh-align-catchobj.ll
 new file mode 100644
 index 000000000..48e5d849e
@@ -4418,10 +4990,10 @@ index 000000000..015c260dd
 +}
 diff --git a/llvm/test/CodeGen/ARM/wineh-cxx-eh.ll b/llvm/test/CodeGen/ARM/wineh-cxx-eh.ll
 new file mode 100644
-index 000000000..284dd2108
+index 000000000..b4a3d9d1d
 --- /dev/null
 +++ b/llvm/test/CodeGen/ARM/wineh-cxx-eh.ll
-@@ -0,0 +1,172 @@
+@@ -0,0 +1,201 @@
 +; RUN: llc -O2 -mtriple=thumbv7-pc-windows-msvc < %s | FileCheck %s
 +
 +; C++ exception handling (__CxxFrameHandler3) on Windows ARM, checked against
@@ -4481,6 +5053,36 @@ index 000000000..284dd2108
 +  cleanupret from %p unwind to caller
 +}
 +
++; Two catch handlers. 32-bit HandlerType entries are 16 bytes: there is no
++; ParentFrameOffset, which only the 64-bit layout has.
++define i32 @two_catches() personality ptr @__CxxFrameHandler3 {
++; CHECK-LABEL: two_catches:
++; CHECK:       $handlerMap$0$two_catches:
++; CHECK-NEXT:  .long 8 @ Adjectives
++; CHECK-NEXT:  .long "??_R0?AUE@@@8"@imgrel @ Type
++; CHECK-NEXT:  .long {{-[0-9]+}} @ CatchObjOffset
++; CHECK-NEXT:  .long "?catch${{[0-9]+}}@?0?two_catches@4HA"@imgrel @ Handler
++; CHECK-NEXT:  .long 64 @ Adjectives
++; CHECK-NEXT:  .long 0 @ Type
++; CHECK-NEXT:  .long 0 @ CatchObjOffset
++; CHECK-NEXT:  .long "?catch${{[0-9]+}}@?0?two_catches@4HA"@imgrel @ Handler
++; CHECK-NOT:   ParentFrameOffset
++entry:
++  %e = alloca ptr, align 4
++  invoke void @g() to label %done unwind label %dispatch
++dispatch:
++  %cs = catchswitch within none [label %catch.e, label %catch.all] unwind to caller
++catch.e:
++  %cp1 = catchpad within %cs [ptr @"??_R0?AUE@@@8", i32 8, ptr %e]
++  catchret from %cp1 to label %done
++catch.all:
++  %cp2 = catchpad within %cs [ptr null, i32 64, ptr null]
++  catchret from %cp2 to label %done
++done:
++  %r = phi i32 [ 0, %entry ], [ 1, %catch.e ], [ 2, %catch.all ]
++  ret i32 %r
++}
++
 +; catch (...) without a catch object.
 +define i32 @catch_all() personality ptr @__CxxFrameHandler3 {
 +; CHECK-LABEL: catch_all:
@@ -4504,7 +5106,6 @@ index 000000000..284dd2108
 +; CHECK-NEXT:  .long 0 @ Type
 +; CHECK-NEXT:  .long 0 @ CatchObjOffset
 +; CHECK-NEXT:  .long "?catch$3@?0?catch_all@4HA"@imgrel @ Handler
-+; CHECK-NEXT:  .long 0 @ ParentFrameOffset
 +entry:
 +  invoke void @g() to label %done unwind label %dispatch
 +dispatch:
@@ -5363,3 +5964,78 @@ index 000000000..76aef6c08
 +define dso_local arm_aapcs_vfpcc void @f() {
 +  ret void
 +}
+diff --git a/llvm/test/tools/llvm-objdump/COFF/armnt-exports.yaml b/llvm/test/tools/llvm-objdump/COFF/armnt-exports.yaml
+new file mode 100644
+index 000000000..2a0bc2c09
+--- /dev/null
++++ b/llvm/test/tools/llvm-objdump/COFF/armnt-exports.yaml
+@@ -0,0 +1,54 @@
++## On ARMNT, the export RVA of a Thumb function has its low bit set. Disassemble
++## an export from the even address.
++
++# RUN: yaml2obj %s -o %t.dll
++# RUN: llvm-objdump -d --no-show-raw-insn %t.dll | FileCheck %s
++
++# CHECK:      10001000 <add3>:
++# CHECK-NEXT: 10001000: add r0, r1
++# CHECK-NEXT: 10001002: add r0, r2
++# CHECK-NEXT: 10001004: bx lr
++# CHECK-EMPTY:
++# CHECK-NEXT: 10001006 <mul2>:
++# CHECK-NEXT: 10001006: lsls r0, r0, #0x1
++# CHECK-NEXT: 10001008: bx lr
++
++--- !COFF
++OptionalHeader:
++  AddressOfEntryPoint: 0
++  ImageBase:       268435456
++  SectionAlignment: 4096
++  FileAlignment:   512
++  MajorOperatingSystemVersion: 6
++  MinorOperatingSystemVersion: 0
++  MajorImageVersion: 0
++  MinorImageVersion: 0
++  MajorSubsystemVersion: 6
++  MinorSubsystemVersion: 0
++  Subsystem:       IMAGE_SUBSYSTEM_WINDOWS_GUI
++  DLLCharacteristics: [ IMAGE_DLL_CHARACTERISTICS_DYNAMIC_BASE, IMAGE_DLL_CHARACTERISTICS_NX_COMPAT ]
++  SizeOfStackReserve: 1048576
++  SizeOfStackCommit: 4096
++  SizeOfHeapReserve: 1048576
++  SizeOfHeapCommit: 4096
++  ExportTable:
++    RelativeVirtualAddress: 8192
++    Size:            82
++header:
++  Machine:         IMAGE_FILE_MACHINE_ARMNT
++  Characteristics: [ IMAGE_FILE_EXECUTABLE_IMAGE, IMAGE_FILE_32BIT_MACHINE, IMAGE_FILE_DLL ]
++sections:
++  - Name:            .text
++    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
++    VirtualAddress:  4096
++    VirtualSize:     10
++    SectionData:     '08441044704740007047'
++    SizeOfRawData:   512
++  - Name:            .rdata
++    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ ]
++    VirtualAddress:  8192
++    VirtualSize:     82
++    SectionData:     00000000000000000000000028200000010000000200000002000000342000003C200000442000006578706F7274732E646C6C000110000007100000482000004D2000000000010061646433006D756C3200
++    SizeOfRawData:   512
++symbols:         []
++...
+diff --git a/llvm/tools/llvm-objdump/llvm-objdump.cpp b/llvm/tools/llvm-objdump/llvm-objdump.cpp
+index 92c1c2da3..97bb19a7f 100644
+--- a/llvm/tools/llvm-objdump/llvm-objdump.cpp
++++ b/llvm/tools/llvm-objdump/llvm-objdump.cpp
+@@ -2053,6 +2053,10 @@ disassembleObject(ObjectFile &Obj, const ObjectFile &DbgObj,
+           });
+       if (Sec != SectionAddresses.begin()) {
+         --Sec;
++        // The export RVA of a Thumb function has its low bit set.
++        if (COFFObj->getMachine() == COFF::IMAGE_FILE_MACHINE_ARMNT &&
++            Sec->second.isText())
++          VA &= ~1ULL;
+         AllSymbols[Sec->second].emplace_back(VA, Name, ELF::STT_NOTYPE);
+       } else
+         AbsoluteSymbols.emplace_back(VA, Name, ELF::STT_NOTYPE);

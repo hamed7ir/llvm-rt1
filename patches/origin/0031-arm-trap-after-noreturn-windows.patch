@@ -1,0 +1,150 @@
+From 04c6e58515faf98270fc92fe81156c80f147c734 Mon Sep 17 00:00:00 2001
+From: hamed7ir <hamedghorbani17@live.com>
+Date: Thu, 12 Nov 2026 10:33:52 -0800
+Subject: [PATCH 31/34] 0031 ARM: trap after noreturn calls on Windows
+
+The Windows unwinder finds the function or funclet of a frame from its return address
+(MSVC's __CxxFrameHandler3 passes it to RtlLookupFunctionEntry as is). On 32-bit Arm
+nothing followed a noreturn call, so a call that ended a function or funclet returned
+into the next one: a rethrow at the end of a catch funclet was looked up in the next
+funclet and caught again until the stack overflowed (kodi-rt's T12, Release). Turn on
+TrapUnreachable and keep the trap after noreturn calls on Windows, so a udf #254 (MSVC's
+__debugbreak) follows every noreturn call, as in MSVC's code. rt's AArch64 does the same
+for Windows, and rustc keeps these traps on Windows for the same reason
+(rust-lang/rust#140489). Upstream moved AArch64's version into its AsmPrinter
+(llvm/llvm-project#232358), but ARM blocks must not grow after ARMConstantIslands.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ llvm/lib/Target/ARM/ARMTargetMachine.cpp      |  8 ++
+ .../ARM/Windows/trap-after-noreturn.ll        | 99 +++++++++++++++++++
+ 2 files changed, 107 insertions(+)
+ create mode 100644 llvm/test/CodeGen/ARM/Windows/trap-after-noreturn.ll
+
+diff --git a/llvm/lib/Target/ARM/ARMTargetMachine.cpp b/llvm/lib/Target/ARM/ARMTargetMachine.cpp
+index d21029bdd..c209ed02e 100644
+--- a/llvm/lib/Target/ARM/ARMTargetMachine.cpp
++++ b/llvm/lib/Target/ARM/ARMTargetMachine.cpp
+@@ -186,6 +186,14 @@ ARMBaseTargetMachine::ARMBaseTargetMachine(const Target &T, const Triple &TT,
+     this->Options.NoTrapAfterNoreturn = true;
+   }
+ 
++  // With Windows unwind info, the unwinder finds the function or funclet of a
++  // frame from its return address, so a call must not be the last instruction
++  // of one. Trap after noreturn calls, as MSVC does.
++  if (TT.isOSWindows()) {
++    this->Options.TrapUnreachable = true;
++    this->Options.NoTrapAfterNoreturn = false;
++  }
++
+   // ARM supports the debug entry values.
+   setSupportsDebugEntryValues(true);
+ 
+diff --git a/llvm/test/CodeGen/ARM/Windows/trap-after-noreturn.ll b/llvm/test/CodeGen/ARM/Windows/trap-after-noreturn.ll
+new file mode 100644
+index 000000000..c9a8ff0a3
+--- /dev/null
++++ b/llvm/test/CodeGen/ARM/Windows/trap-after-noreturn.ll
+@@ -0,0 +1,99 @@
++; With Windows unwind info, the unwinder finds the function or funclet of a
++; frame from its return address, so a call must not be the last instruction of
++; one. A trap (udf #254, as MSVC's __debugbreak) follows each noreturn call on
++; Windows.
++
++; RUN: split-file %s %t
++; RUN: llc -mtriple=thumbv7-windows-msvc < %t/noreturn.ll | FileCheck %s
++; RUN: llc -mtriple=thumbv7-windows-msvc -O0 < %t/noreturn.ll | FileCheck %s
++; RUN: llc -mtriple=thumbv7-windows-gnu < %t/noreturn.ll | FileCheck %s
++; RUN: llc -mtriple=thumbv7-linux-gnueabihf < %t/noreturn.ll | FileCheck --check-prefix=ELF %s
++; RUN: llc -mtriple=thumbv7-windows-msvc < %t/funclet.ll | FileCheck --check-prefix=FUNCLET %s
++; RUN: llc -mtriple=thumbv7-windows-msvc -O0 < %t/funclet.ll | FileCheck --check-prefix=FUNCLET %s
++
++;--- noreturn.ll
++declare void @abort() noreturn
++declare void @exit(i32) noreturn
++
++; CHECK-LABEL: {{^}}f:
++; CHECK:       bl abort
++; CHECK-NEXT:  .inst.n 0xdefe
++
++; ELF-LABEL:   {{^}}f:
++; ELF:         bl abort
++; ELF-NEXT:    .Lfunc_end0:
++define void @f() {
++  call void @abort()
++  unreachable
++}
++
++; Block placement decides which call ends the function, so both get a trap.
++; CHECK-LABEL: {{^}}g:
++; CHECK:       bl {{abort|exit}}
++; CHECK-NEXT:  .inst.n 0xdefe
++; CHECK:       bl {{abort|exit}}
++; CHECK-NEXT:  .inst.n 0xdefe
++
++; ELF-LABEL:   {{^}}g:
++; ELF-NOT:     0xdefe
++; ELF:         .Lfunc_end1:
++define void @g(i32 %x) {
++entry:
++  %c = icmp eq i32 %x, 0
++  br i1 %c, label %a, label %b
++a:
++  call void @abort()
++  unreachable
++b:
++  call void @exit(i32 1)
++  unreachable
++}
++
++;--- funclet.ll
++declare void @may_throw()
++declare void @abort() noreturn
++declare void @_CxxThrowException(ptr, ptr) noreturn
++declare i32 @__CxxFrameHandler3(...)
++
++; Each catch funclet ends with a rethrow. Without the trap, the return address
++; of the first rethrow would be the start of the second funclet.
++; FUNCLET-LABEL: "?catch$2@?0?h@4HA":
++; FUNCLET:       bl _CxxThrowException
++; FUNCLET-NEXT:  .inst.n 0xdefe
++; FUNCLET-LABEL: "?catch$3@?0?h@4HA":
++; FUNCLET:       bl _CxxThrowException
++; FUNCLET-NEXT:  .inst.n 0xdefe
++define void @h() personality ptr @__CxxFrameHandler3 {
++entry:
++  invoke void @may_throw() to label %ret unwind label %dispatch
++dispatch:
++  %cs = catchswitch within none [label %catch1, label %catch2] unwind to caller
++catch1:
++  %p1 = catchpad within %cs [ptr null, i32 0, ptr null]
++  call void @_CxxThrowException(ptr null, ptr null) [ "funclet"(token %p1) ]
++  unreachable
++catch2:
++  %p2 = catchpad within %cs [ptr null, i32 64, ptr null]
++  call void @_CxxThrowException(ptr null, ptr null) [ "funclet"(token %p2) ]
++  unreachable
++ret:
++  ret void
++}
++
++; The parent's code ends with a noreturn call and its catch funclet follows.
++; FUNCLET-LABEL: {{^}}k:
++; FUNCLET:       bl abort
++; FUNCLET-NEXT:  .inst.n 0xdefe
++; FUNCLET-LABEL: "?catch$2@?0?k@4HA":
++define void @k() personality ptr @__CxxFrameHandler3 {
++entry:
++  invoke void @may_throw() to label %cont unwind label %dispatch
++dispatch:
++  %cs = catchswitch within none [label %catch] unwind to caller
++catch:
++  %p = catchpad within %cs [ptr null, i32 64, ptr null]
++  catchret from %p to label %cont
++cont:
++  call void @abort()
++  unreachable
++}
+-- 
+2.53.0.windows.3
+

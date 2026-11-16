@@ -1,0 +1,145 @@
+From 15345697fcc2ddb4b090ba0ed76f1612095f7a24 Mon Sep 17 00:00:00 2001
+From: hamed7ir <hamedghorbani17@live.com>
+Date: Thu, 12 Nov 2026 14:53:32 -0800
+Subject: [PATCH 32/34] 0032 ARM: count the funclet entry alignment in
+ ARMConstantIslands
+
+WinException aligns each funclet entry to the function's preferred alignment,
+which is 4 once ARMConstantIslands has placed a constant pool or found a
+Thumb-2 jump table. ARMConstantIslands measured the blocks without that
+padding, so with many funclets a constant pool load could end up out of range
+and the assembler stopped with "out of range pc-relative fixup value"
+(kodi-rt: Kodi's InputManager.cpp, a vldr 1032 bytes from its pool behind 38
+bytes of funclet padding). Give funclet entries that alignment once the
+function's alignment is final, and update the block offsets.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ llvm/lib/Target/ARM/ARMConstantIslandPass.cpp | 12 +++
+ .../ARM/Windows/wineh-funclet-align.ll        | 91 +++++++++++++++++++
+ 2 files changed, 103 insertions(+)
+ create mode 100644 llvm/test/CodeGen/ARM/Windows/wineh-funclet-align.ll
+
+diff --git a/llvm/lib/Target/ARM/ARMConstantIslandPass.cpp b/llvm/lib/Target/ARM/ARMConstantIslandPass.cpp
+index 97db51129..aa72848b3 100644
+--- a/llvm/lib/Target/ARM/ARMConstantIslandPass.cpp
++++ b/llvm/lib/Target/ARM/ARMConstantIslandPass.cpp
+@@ -448,6 +448,18 @@ bool ARMConstantIslands::runOnMachineFunction(MachineFunction &mf) {
+   if (!T2JumpTables.empty())
+     MF->ensureAlignment(Align(4));
+ 
++  // Funclet entries are aligned to the function's preferred alignment when
++  // they are emitted (WinException::beginFunclet), so count that padding.
++  if (MF->hasEHFunclets()) {
++    const Align FuncletAlign = MF->getPreferredAlignment();
++    for (MachineBasicBlock &MBB : *MF) {
++      if (MBB.isEHFuncletEntry() && MBB.getAlignment() < FuncletAlign) {
++        MBB.setAlignment(FuncletAlign);
++        BBUtils->adjustBBOffsetsAfter(MBB.getPrevNode());
++      }
++    }
++  }
++
+   /// Remove dead constant pool entries.
+   MadeChange |= removeUnusedCPEntries();
+ 
+diff --git a/llvm/test/CodeGen/ARM/Windows/wineh-funclet-align.ll b/llvm/test/CodeGen/ARM/Windows/wineh-funclet-align.ll
+new file mode 100644
+index 000000000..938c562ec
+--- /dev/null
++++ b/llvm/test/CodeGen/ARM/Windows/wineh-funclet-align.ll
+@@ -0,0 +1,91 @@
++; ARMConstantIslands has to count the padding that aligns each funclet entry
++; to the function's preferred alignment (WinException::beginFunclet), or a
++; constant pool load across funclets can end up out of range.
++
++; RUN: llc -mtriple=thumbv7-windows-msvc -stop-after=arm-cp-islands < %s | FileCheck %s
++
++declare void @g(i32)
++declare void @use(float)
++declare void @dtor(ptr)
++declare i32 @__CxxFrameHandler3(...)
++
++; A constant pool makes the function 4-byte aligned, and so its funclets.
++; CHECK-LABEL: name: cp
++; CHECK:       alignment: 4
++; CHECK:       (landing-pad, ehfunclet-entry, ehscope-entry, align 4):
++define void @cp(float %v) personality ptr @__CxxFrameHandler3 {
++entry:
++  %obj = alloca i32
++  invoke void @g(i32 1) to label %cont unwind label %cleanup
++cont:
++  %m = fmul float %v, 1.234500e+03
++  call void @use(float %m)
++  call void @dtor(ptr %obj)
++  ret void
++cleanup:
++  %cp = cleanuppad within none []
++  call void @dtor(ptr %obj) [ "funclet"(token %cp) ]
++  cleanupret from %cp unwind to caller
++}
++
++; So does a jump table, which ARMConstantIslands finds only after it has
++; measured the blocks.
++; CHECK-LABEL: name: jt
++; CHECK:       alignment: 4
++; CHECK:       (landing-pad, ehfunclet-entry, ehscope-entry, align 4):
++define void @jt(i32 %v) personality ptr @__CxxFrameHandler3 {
++entry:
++  %obj = alloca i32
++  invoke void @g(i32 0) to label %cont unwind label %cleanup
++cont:
++  switch i32 %v, label %done [
++    i32 0, label %c0
++    i32 1, label %c1
++    i32 2, label %c2
++    i32 3, label %c3
++    i32 4, label %c4
++    i32 5, label %c5
++  ]
++c0:
++  call void @g(i32 10)
++  br label %done
++c1:
++  call void @g(i32 11)
++  br label %done
++c2:
++  call void @g(i32 12)
++  br label %done
++c3:
++  call void @g(i32 13)
++  br label %done
++c4:
++  call void @g(i32 14)
++  br label %done
++c5:
++  call void @g(i32 15)
++  br label %done
++done:
++  call void @dtor(ptr %obj)
++  ret void
++cleanup:
++  %cp = cleanuppad within none []
++  call void @dtor(ptr %obj) [ "funclet"(token %cp) ]
++  cleanupret from %cp unwind to caller
++}
++
++; Without either, the funclet keeps the function's alignment of 2.
++; CHECK-LABEL: name: nocp
++; CHECK:       alignment: 2
++; CHECK:       (landing-pad, ehfunclet-entry, ehscope-entry, align 2):
++define void @nocp(i32 %v) personality ptr @__CxxFrameHandler3 {
++entry:
++  %obj = alloca i32
++  invoke void @g(i32 %v) to label %cont unwind label %cleanup
++cont:
++  call void @dtor(ptr %obj)
++  ret void
++cleanup:
++  %cp = cleanuppad within none []
++  call void @dtor(ptr %obj) [ "funclet"(token %cp) ]
++  cleanupret from %cp unwind to caller
++}
+-- 
+2.53.0.windows.3
+

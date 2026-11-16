@@ -1,0 +1,97 @@
+From 5f5e7115643876fcfffbe6d9efce79ab91dc045b Mon Sep 17 00:00:00 2001
+From: hamed7ir <hamedghorbani17@live.com>
+Date: Fri, 13 Nov 2026 12:37:35 -0800
+Subject: [PATCH 33/34] 0033 llvm-objdump: start an ARMNT export at its even
+ address
+
+On ARMNT, the export RVA of a Thumb function has its low bit set. llvm-objdump
+used it as the symbol address, so it disassembled each export from the odd
+address and everything after the first export came out 1 byte off (kodi-rt: a
+linear disassembly of python314.dll). Clear the low bit of an export in a code
+section.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../llvm-objdump/COFF/armnt-exports.yaml      | 54 +++++++++++++++++++
+ llvm/tools/llvm-objdump/llvm-objdump.cpp      |  4 ++
+ 2 files changed, 58 insertions(+)
+ create mode 100644 llvm/test/tools/llvm-objdump/COFF/armnt-exports.yaml
+
+diff --git a/llvm/test/tools/llvm-objdump/COFF/armnt-exports.yaml b/llvm/test/tools/llvm-objdump/COFF/armnt-exports.yaml
+new file mode 100644
+index 000000000..2a0bc2c09
+--- /dev/null
++++ b/llvm/test/tools/llvm-objdump/COFF/armnt-exports.yaml
+@@ -0,0 +1,54 @@
++## On ARMNT, the export RVA of a Thumb function has its low bit set. Disassemble
++## an export from the even address.
++
++# RUN: yaml2obj %s -o %t.dll
++# RUN: llvm-objdump -d --no-show-raw-insn %t.dll | FileCheck %s
++
++# CHECK:      10001000 <add3>:
++# CHECK-NEXT: 10001000: add r0, r1
++# CHECK-NEXT: 10001002: add r0, r2
++# CHECK-NEXT: 10001004: bx lr
++# CHECK-EMPTY:
++# CHECK-NEXT: 10001006 <mul2>:
++# CHECK-NEXT: 10001006: lsls r0, r0, #0x1
++# CHECK-NEXT: 10001008: bx lr
++
++--- !COFF
++OptionalHeader:
++  AddressOfEntryPoint: 0
++  ImageBase:       268435456
++  SectionAlignment: 4096
++  FileAlignment:   512
++  MajorOperatingSystemVersion: 6
++  MinorOperatingSystemVersion: 0
++  MajorImageVersion: 0
++  MinorImageVersion: 0
++  MajorSubsystemVersion: 6
++  MinorSubsystemVersion: 0
++  Subsystem:       IMAGE_SUBSYSTEM_WINDOWS_GUI
++  DLLCharacteristics: [ IMAGE_DLL_CHARACTERISTICS_DYNAMIC_BASE, IMAGE_DLL_CHARACTERISTICS_NX_COMPAT ]
++  SizeOfStackReserve: 1048576
++  SizeOfStackCommit: 4096
++  SizeOfHeapReserve: 1048576
++  SizeOfHeapCommit: 4096
++  ExportTable:
++    RelativeVirtualAddress: 8192
++    Size:            82
++header:
++  Machine:         IMAGE_FILE_MACHINE_ARMNT
++  Characteristics: [ IMAGE_FILE_EXECUTABLE_IMAGE, IMAGE_FILE_32BIT_MACHINE, IMAGE_FILE_DLL ]
++sections:
++  - Name:            .text
++    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
++    VirtualAddress:  4096
++    VirtualSize:     10
++    SectionData:     '08441044704740007047'
++    SizeOfRawData:   512
++  - Name:            .rdata
++    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ ]
++    VirtualAddress:  8192
++    VirtualSize:     82
++    SectionData:     00000000000000000000000028200000010000000200000002000000342000003C200000442000006578706F7274732E646C6C000110000007100000482000004D2000000000010061646433006D756C3200
++    SizeOfRawData:   512
++symbols:         []
++...
+diff --git a/llvm/tools/llvm-objdump/llvm-objdump.cpp b/llvm/tools/llvm-objdump/llvm-objdump.cpp
+index 92c1c2da3..97bb19a7f 100644
+--- a/llvm/tools/llvm-objdump/llvm-objdump.cpp
++++ b/llvm/tools/llvm-objdump/llvm-objdump.cpp
+@@ -2053,6 +2053,10 @@ disassembleObject(ObjectFile &Obj, const ObjectFile &DbgObj,
+           });
+       if (Sec != SectionAddresses.begin()) {
+         --Sec;
++        // The export RVA of a Thumb function has its low bit set.
++        if (COFFObj->getMachine() == COFF::IMAGE_FILE_MACHINE_ARMNT &&
++            Sec->second.isText())
++          VA &= ~1ULL;
+         AllSymbols[Sec->second].emplace_back(VA, Name, ELF::STT_NOTYPE);
+       } else
+         AbsoluteSymbols.emplace_back(VA, Name, ELF::STT_NOTYPE);
+-- 
+2.53.0.windows.3
+

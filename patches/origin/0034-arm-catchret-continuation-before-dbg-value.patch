@@ -1,0 +1,218 @@
+From e35669cad7abfe9815552a60a9d6417aa5096482 Mon Sep 17 00:00:00 2001
+From: hamed7ir <hamedghorbani17@live.com>
+Date: Fri, 13 Nov 2026 12:37:35 -0800
+Subject: [PATCH 34/34] 0034 ARM: load the catchret continuation before a
+ DBG_VALUE
+
+ARMExpandPseudo puts the catch funclet's continuation load (movw/movt r0) before
+the epilogue by walking back over the frame-destroy instructions. A DBG_VALUE
+between the epilogue and the CATCHRET (LiveDebugValues puts one there for a
+variable the epilogue reloads) stopped the walk, so the load landed inside the
+SEH epilogue and MC rejected it: "Incorrect size for ... epilogue: 16 bytes of
+instructions in range, but .seh directives corresponding to 8 bytes" (kodi-rt:
+Kodi's FFmpeg.cpp with /Zi and -fprofile-generate). Skip debug instructions in
+that walk.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ llvm/lib/Target/ARM/ARMExpandPseudoInsts.cpp  |   3 +-
+ .../ARM/Windows/wineh-catchret-dbg-value.mir  | 173 ++++++++++++++++++
+ 2 files changed, 175 insertions(+), 1 deletion(-)
+ create mode 100644 llvm/test/CodeGen/ARM/Windows/wineh-catchret-dbg-value.mir
+
+diff --git a/llvm/lib/Target/ARM/ARMExpandPseudoInsts.cpp b/llvm/lib/Target/ARM/ARMExpandPseudoInsts.cpp
+index e3ceede40..4f077a106 100644
+--- a/llvm/lib/Target/ARM/ARMExpandPseudoInsts.cpp
++++ b/llvm/lib/Target/ARM/ARMExpandPseudoInsts.cpp
+@@ -2266,7 +2266,8 @@ bool ARMExpandPseudo::ExpandMI(MachineBasicBlock &MBB,
+         MachineBasicBlock *TargetMBB = MI.getOperand(0).getMBB();
+         MachineBasicBlock::iterator InsertPt = MBBI;
+         while (InsertPt != MBB.begin() &&
+-               std::prev(InsertPt)->getFlag(MachineInstr::FrameDestroy))
++               (std::prev(InsertPt)->isDebugInstr() ||
++                std::prev(InsertPt)->getFlag(MachineInstr::FrameDestroy)))
+           --InsertPt;
+         MCSymbol *Sym = TargetMBB->getSymbol();
+         bool IsThumb = STI->isThumb();
+diff --git a/llvm/test/CodeGen/ARM/Windows/wineh-catchret-dbg-value.mir b/llvm/test/CodeGen/ARM/Windows/wineh-catchret-dbg-value.mir
+new file mode 100644
+index 000000000..dc2960bba
+--- /dev/null
++++ b/llvm/test/CodeGen/ARM/Windows/wineh-catchret-dbg-value.mir
+@@ -0,0 +1,173 @@
++# A catch funclet returns its continuation in r0. The load goes before the
++# epilogue even when a DBG_VALUE sits between the epilogue and the CATCHRET, or
++# it lands inside the SEH epilogue and the epilogue's unwind codes don't match.
++# RUN: llc -mtriple=thumbv7-windows-msvc -run-pass=arm-pseudo %s -o - | FileCheck %s
++
++# CHECK-LABEL: bb.1.catch
++# CHECK:       t2MOVi16 target-flags(arm-lo16)
++# CHECK-NEXT:  t2MOVTi16
++# CHECK-NEXT:  }
++# CHECK-NEXT:  frame-destroy SEH_EpilogStart
++# CHECK:       DBG_VALUE
++# CHECK-NEXT:  CATCHRET %bb.2, %bb.0, implicit $r0
++
++--- |
++  ; ModuleID = 'base.ll'
++  source_filename = "base.ll"
++  target datalayout = "e-m:w-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64"
++  target triple = "thumbv7-pc-windows-msvc"
++  
++  declare void @g(i32)
++  
++  declare i32 @__CxxFrameHandler3(...)
++  
++  define void @f(i32 %x) #0 personality ptr @__CxxFrameHandler3 !dbg !4 {
++  entry:
++    invoke void @g(i32 %x)
++            to label %ret unwind label %dispatch, !dbg !10
++  
++  dispatch:                                         ; preds = %entry
++    %cs = catchswitch within none [label %catch] unwind to caller
++  
++  catch:                                            ; preds = %dispatch
++    %p = catchpad within %cs [ptr null, i32 64, ptr null]
++    call void @g(i32 %x) [ "funclet"(token %p) ], !dbg !10
++    catchret from %p to label %ret, !dbg !10
++  
++  ret:                                              ; preds = %catch, %entry
++    ret void
++  }
++  
++  attributes #0 = { "no-realign-stack" }
++  
++  !llvm.dbg.cu = !{!0}
++  !llvm.module.flags = !{!2, !3}
++  
++  !0 = distinct !DICompileUnit(language: DW_LANG_C_plus_plus, file: !1, producer: "t", isOptimized: true, runtimeVersion: 0, emissionKind: FullDebug)
++  !1 = !DIFile(filename: "t.cpp", directory: "/")
++  !2 = !{i32 2, !"Debug Info Version", i32 3}
++  !3 = !{i32 2, !"CodeView", i32 1}
++  !4 = distinct !DISubprogram(name: "f", scope: !1, file: !1, line: 1, type: !5, scopeLine: 1, spFlags: DISPFlagDefinition | DISPFlagOptimized, unit: !0, retainedNodes: !7)
++  !5 = !DISubroutineType(types: !6)
++  !6 = !{null}
++  !7 = !{!8}
++  !8 = !DILocalVariable(name: "x", arg: 1, scope: !4, file: !1, line: 1, type: !9)
++  !9 = !DIBasicType(name: "int", size: 32, encoding: DW_ATE_signed)
++  !10 = !DILocation(line: 2, scope: !4)
++...
++---
++name:            f
++alignment:       2
++exposesReturnsTwice: false
++legalized:       false
++regBankSelected: false
++selected:        false
++failedISel:      false
++tracksRegLiveness: true
++hasWinCFI:       true
++noPhis:          true
++isSSA:           false
++noVRegs:         true
++hasFakeUses:     false
++callsEHReturn:   false
++callsUnwindInit: false
++hasEHContTarget: true
++hasEHScopes:     true
++hasEHFunclets:   true
++isOutlined:      false
++debugInstrRef:   false
++failsVerification: false
++tracksDebugUserValues: true
++registers:       []
++liveins:
++  - { reg: '$r0', virtual-reg: '' }
++frameInfo:
++  isFrameAddressTaken: false
++  isReturnAddressTaken: false
++  hasStackMap:     false
++  hasPatchPoint:   false
++  stackSize:       24
++  offsetAdjustment: 0
++  maxAlignment:    8
++  adjustsStack:    true
++  hasCalls:        true
++  framePointerPolicy: none
++  stackProtector:  ''
++  functionContext: ''
++  maxCallFrameSize: 0
++  cvBytesOfCalleeSavedRegisters: 0
++  hasOpaqueSPAdjustment: true
++  hasVAStart:      false
++  hasMustTailInVarArgFunc: false
++  hasTailCall:     false
++  isCalleeSavedInfoValid: true
++  localFrameSize:  0
++fixedStack:      []
++stack:
++  - { id: 0, name: '', type: spill-slot, offset: -12, size: 4, alignment: 4, 
++      stack-id: default, callee-saved-register: '', callee-saved-restored: true, 
++      debug-info-variable: '', debug-info-expression: '', debug-info-location: '' }
++  - { id: 1, name: '', type: default, offset: -24, size: 8, alignment: 8, 
++      stack-id: default, callee-saved-register: '', callee-saved-restored: true, 
++      debug-info-variable: '', debug-info-expression: '', debug-info-location: '' }
++  - { id: 2, name: '', type: spill-slot, offset: -4, size: 4, alignment: 4, 
++      stack-id: default, callee-saved-register: '$lr', callee-saved-restored: true, 
++      debug-info-variable: '', debug-info-expression: '', debug-info-location: '' }
++  - { id: 3, name: '', type: spill-slot, offset: -8, size: 4, alignment: 4, 
++      stack-id: default, callee-saved-register: '$r6', callee-saved-restored: true, 
++      debug-info-variable: '', debug-info-expression: '', debug-info-location: '' }
++entry_values:    []
++callSites:       []
++debugValueSubstitutions: []
++constants:       []
++machineFunctionInfo:
++  isLRSpilled:     true
++body:             |
++  bb.0.entry:
++    successors: %bb.2(0x7ffff800), %bb.1(0x00000800)
++    liveins: $r0, $lr
++  
++    frame-setup tPUSH 14 /* CC::al */, $noreg, killed $r6, killed $lr, implicit-def $sp, implicit $sp
++    frame-setup SEH_SaveRegs 16448, 0
++    $sp = frame-setup tSUBspi $sp, 4, 14 /* CC::al */, $noreg
++    frame-setup SEH_StackAlloc 16, 0
++    frame-setup SEH_PrologEnd
++    $r6 = tMOVr $sp, 14 /* CC::al */, $noreg
++    $r12 = t2MVNi 1, 14 /* CC::al */, $noreg, $noreg
++    t2STRi12 $r12, $r6, 0, 14 /* CC::al */, $noreg
++    t2STRi12 killed $r12, $r6, 4, 14 /* CC::al */, $noreg
++    EH_LABEL <mcsymbol >, debug-location !10
++    t2STRi12 renamable $r0, $r6, 12, 14 /* CC::al */, $noreg :: (store (s32) into %stack.0)
++    tBL 14 /* CC::al */, $noreg, @g, csr_aapcs, implicit-def dead $lr, implicit $sp, implicit $r0, implicit-def $sp, debug-location !10
++    EH_LABEL <mcsymbol >, debug-location !10
++    t2B %bb.2, 14 /* CC::al */, $noreg, debug-location !10
++  
++  bb.1.catch (landing-pad, ehfunclet-entry, ehscope-entry):
++    successors: %bb.2(0x80000000)
++    liveins: $lr
++  
++    frame-setup tPUSH 14 /* CC::al */, $noreg, killed $r6, killed $lr, implicit-def $sp, implicit $sp
++    frame-setup SEH_SaveRegs 16448, 0
++    $sp = frame-setup tSUBspi $sp, 4, 14 /* CC::al */, $noreg
++    frame-setup SEH_StackAlloc 16, 0
++    frame-setup SEH_PrologEnd
++    $r0 = t2LDRi12 $r6, 12, 14 /* CC::al */, $noreg, debug-location !10 :: (load (s32) from %stack.0)
++    tBL 14 /* CC::al */, $noreg, @g, csr_aapcs, implicit-def dead $lr, implicit $sp, implicit $r0, implicit-def $sp, debug-location !10
++    frame-destroy SEH_EpilogStart debug-location !10
++    $sp = frame-destroy tADDspi $sp, 4, 14 /* CC::al */, $noreg, debug-location !10
++    frame-destroy SEH_StackAlloc 16, 0, debug-location !10
++    $sp = frame-destroy t2LDMIA_UPD $sp, 14 /* CC::al */, $noreg, def $r6, def $lr, debug-location !10
++    frame-destroy SEH_SaveRegs 16448, 1, debug-location !10
++    DBG_VALUE $noreg, $noreg, !8, !DIExpression(), debug-location !10
++    CATCHRET %bb.2, %bb.0, debug-location !10
++    frame-destroy SEH_Nop_Ret 0, debug-location !10
++    frame-destroy SEH_EpilogEnd debug-location !10
++  
++  bb.2.ret:
++    frame-destroy SEH_EpilogStart
++    $sp = frame-destroy tADDspi $sp, 4, 14 /* CC::al */, $noreg
++    frame-destroy SEH_StackAlloc 16, 0
++    frame-destroy tPOP_RET 14 /* CC::al */, $noreg, def $r6, def $pc
++    frame-destroy SEH_SaveRegs_Ret 16448, 0
++    frame-destroy SEH_EpilogEnd
++...
+-- 
+2.53.0.windows.3
+

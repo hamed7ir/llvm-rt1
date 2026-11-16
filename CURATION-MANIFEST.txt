@@ -29,6 +29,12 @@ patches/origin/0025-lld-coff-deterministic-callgraph-sort.patch
 patches/origin/0026-arm-mc-t32-str-pc-diagnose.patch
 patches/origin/0027-clang-ms-abi-arm-image-relative-throw-info.patch
 patches/origin/0028-clang-arm-sizeof-wchar-t.patch
+patches/origin/0029-wineh-arm-catch-handler-entries-16-bytes.patch
+patches/origin/0030-arm-catchret-ends-eh-scope.patch
+patches/origin/0031-arm-trap-after-noreturn-windows.patch
+patches/origin/0032-arm-funclet-entry-alignment-in-constant-islands.patch
+patches/origin/0033-llvm-objdump-armnt-export-even-address.patch
+patches/origin/0034-arm-catchret-continuation-before-dbg-value.patch
 patches/origin/B01-arm-mac-64b-231702.patch
 patches/origin/B02-arm-ldst-opt-liveregpos-226937.patch
 patches/origin/B03-dagcombiner-borrow-chain-223396.patch
@@ -38,7 +44,7 @@ patches/origin/B06-instcombine-sinknot-226783.patch
 patches/origin/B07-globalsaa-self-store-213631.patch
 patches/origin/B08-simplifylibcalls-char-231159.patch
 patches/origin/README.txt
-patches/rt23-vs-23.1.1.patch
+patches/rt24-vs-23.1.1.patch
 README.md
 RELEASE-NOTES.md
 runtime/aeabi-shim.c

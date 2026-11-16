@@ -1,4 +1,4 @@
-rt2.3: MODIFICATION NOTICE
+rt2.4: MODIFICATION NOTICE
 ==========================
 
 This package has CHANGED binaries built from the LLVM Project.
@@ -11,18 +11,18 @@ bin/ and lib/, and the ARM32 target files in lib/clang/23/lib/windows/, staged/ 
 WHAT THIS IS
 ------------
 
-rt2.3 is a full toolchain for compiling C and C++ for 32-bit ARM Windows (thumbv7) with clang-cl
-and lld-link. It is LLVM 23.1.1 with 32 patches: rt2.2's 30 and 2 new ones. It is also built with
-zlib 1.4 now (see below).
+rt2.4 is a full toolchain for compiling C and C++ for 32-bit ARM Windows (thumbv7) with clang-cl
+and lld-link. It is LLVM 23.1.1 with 38 patches: rt2.3's 32 and 6 new ones. Like rt2.3, it is
+built with zlib 1.4 (see below).
 
-  build         : 2026-11-08, clang ecc7a88742db83ce2316082eb80d23183a8d1e5e
+  build         : 2026-11-13, clang f6e5f8e02a8c69d0479b5623215b8a8b8fcd2e01
   upstream base : llvmorg-23.1.1
-  built from    : patches/rt23-vs-23.1.1.patch, the full diff from clean llvmorg-23.1.1, made with
+  built from    : patches/rt24-vs-23.1.1.patch, the full diff from clean llvmorg-23.1.1, made with
                   git diff --binary. Applied to a clean 23.1.1 it gives the same tree, file for file.
-  the revision  : ecc7a88742db83ce2316082eb80d23183a8d1e5e is the first 40 hex digits of the
+  the revision  : f6e5f8e02a8c69d0479b5623215b8a8b8fcd2e01 is the first 40 hex digits of the
                   sha256 of that diff. So the binaries name the exact source they came from.
 
-The toolchain archive has 392 files:
+The toolchain archive has 398 files:
 
   bin/                    29 tools (28 programs and libclang.dll), built from the changed source.
                           Also 8 Microsoft VC runtime DLLs. Those are not mine and not changed,
@@ -32,18 +32,18 @@ The toolchain archive has 392 files:
                           clang_rt.builtins-arm.lib, clang_rt.builtins-i386.lib,
                           clang_rt.builtins-x86_64.lib, clang_rt.profile-arm.lib,
                           clang_rt.profile-i386.lib and clang_rt.profile-x86_64.lib. All six are
-                          built by this clang from LLVM 23.1.1's compiler-rt source, which rt2.3
+                          built by this clang from LLVM 23.1.1's compiler-rt source, which rt2.4
                           does not change. The ARM builtins library is the plain one, without the
                           __rt_*div routines.
   staged/rtdiv/           an ARM builtins library WITH __rt_udiv/__rt_sdiv routines. It's a
                           fallback and is not used unless you copy it in. See its README.txt.
-  patches/                rt23-vs-23.1.1.patch (the full diff) and origin/ (every patch on its
+  patches/                rt24-vs-23.1.1.patch (the full diff) and origin/ (every patch on its
                           own, see origin/README.txt)
   runtime/                aeabi-shim.c, and an ARM32 .lib and .obj built from it by this clang
   licenses/               the licenses of libxml2 and zlib
   README.md, RELEASE-NOTES.md, LICENSE.TXT, MODIFICATIONS.txt
 
-The dev archive (rt2.3-23.1.1-rt2.3-dev-win64) is LLVM's libraries, headers and CMake files from
+The dev archive (rt2.4-23.1.1-rt2.4-dev-win64) is LLVM's libraries, headers and CMake files from
 the same build, so this notice covers it too. So does the copy of LLVM linked into the rustc in
 the rustc archive.
 
@@ -52,32 +52,36 @@ HOW TO TELL THIS IS THIS BUILD
 ------------------------------
 
   the 4 clang programs  --version prints
-                        "Varan clang version 23.1.1-rt2.3 (ecc7a88742db83ce2316082eb80d23183a8d1e5e)"
-  the 5 lld programs    print "Varan LLD 23.1.1", the same as rt2.2's. lld drops the suffix, so check
+                        "Varan clang version 23.1.1-rt2.4 (f6e5f8e02a8c69d0479b5623215b8a8b8fcd2e01)"
+  the 5 lld programs    print "Varan LLD 23.1.1", the same as rt2.3's. lld drops the suffix, so check
                         lld by its sha256, not by its version string.
-  the llvm-* tools      most print "LLVM version 23.1.1-rt2.3". llvm-lib, llvm-ml, llvm-rc and
+  the llvm-* tools      most print "LLVM version 23.1.1-rt2.4". llvm-lib, llvm-ml, llvm-rc and
                         llvm-mt have no version flag, so check those by sha256.
 
 Search clang-cl.exe's bytes instead of trusting --version. In cmd.exe:
 
-    findstr /M /C:"ecc7a88742db83ce2316082eb80d23183a8d1e5e" clang-cl.exe
+    findstr /M /C:"f6e5f8e02a8c69d0479b5623215b8a8b8fcd2e01" clang-cl.exe
 
 In git-bash:
 
-    grep -ac ecc7a88742db83ce2316082eb80d23183a8d1e5e clang-cl.exe
+    grep -ac f6e5f8e02a8c69d0479b5623215b8a8b8fcd2e01 clang-cl.exe
 
 And check the other side too. None of these should be in it:
 
+    ecc7a88742db83ce2316082eb80d23183a8d1e5e   rt2.3
     0462bd95317e650684c8dc5ea77dc37eacf59adb   rt2.2
     e240ad76c3a4429084c026fe0a9b0fce34025032   rt2.1
     a2c87785524736693e171d1a82d5aecf8c2203ff   an earlier rt2.1 build, before rt2.1's 0012 to 0020
     rt21fix-wip                                 any work-in-progress build of rt2.1
+    f4d1c31170af3fd72e09fdc3e675971a008abba5   the rt2.4 test builds the Kodi port tried before the
+    0549949d0942cc3c8eed3927dde694cef24b232c   last patches went in (0029 and 0030; up to 0031; up
+    0318206a45c37ad2d13de906297d8965cbc84252   to 0032)
 
 
 WHAT WAS CHANGED
 ----------------
 
-32 changes. They ship as one checked diff (patches/rt23-vs-23.1.1.patch) and one by one in
+38 changes. They ship as one checked diff (patches/rt24-vs-23.1.1.patch) and one by one in
 patches/origin/.
 
 From rt2 (first written for LLVM 18 as rt1 patches, then moved to 23.x. origin/README.txt says
@@ -119,17 +123,31 @@ From rt2.2, upstream LLVM fixes taken as they are (B02 with its context adjusted
   B06  [InstCombine] Fix miscompilation in sinkNotIntoOtherHandOfLogicalOp (#226783)
   B07  [GlobalsAA] Handle self-referencing stores in AnalyzeUsesOfPointer (#213631)
   B08  [SimplifyLibCalls] Fix ConstantInt construction based on char (#231159)
-New in rt2.3, mine (the bugs were found by the work porting Kodi to Windows RT 8.1 ARM32):
+From rt2.3, mine:
   0027  clang MS ABI: on 32-bit Arm the C++ throw information (ThrowInfo, CatchableTypeArray,
         CatchableType) holds image-relative offsets, as MSVC's runtime reads it. The RTTI stays
         absolute, as on MSVC.
   0028  clang: __ARM_SIZEOF_WCHAR_T is the size of the target's wchar_t: 2 on Windows ARM32 and
         ARM64, where it was 4.
+New in rt2.4, mine (the work porting Kodi to Windows RT 8.1 ARM32 found five of the bugs; 0030 is
+llvm/llvm-project#239929):
+  0029  WinEH: on 32-bit Arm a catch handler entry is 16 bytes, as MSVC's runtime reads it. It had
+        the 64-bit-only ParentFrameOffset field too.
+  0030  ARM: a catchret ends its EH scope, so the code after a catch stays in the parent function
+        and out of the catch funclet.
+  0031  ARM: on Windows a trap (udf #254, MSVC's __debugbreak) follows every call that doesn't
+        return, so a call never ends a function or funclet.
+  0032  ARM: ARMConstantIslands counts the alignment of each funclet entry (WinEH funclets are
+        aligned when they are written out).
+  0033  llvm-objdump: an ARMNT DLL's export starts at its even address; the low (Thumb) bit of the
+        export's address is not part of it.
+  0034  ARM: the catchret's continuation address is loaded before the epilogue even when a
+        DBG_VALUE sits before the catchret. This fixes a case 0030 got wrong.
 
-Every patch from rt2.1's 0012 to rt2.3's 0028 has lit tests that fail without it and an
-independent review. The changes those reviews caused were reviewed again. The upstream fixes B01
-to B08 bring upstream's own tests. B04, B05 and B08 have none that fails on rt2.1
-(RELEASE-NOTES.md says why).
+Every patch from rt2.1's 0012 to rt2.4's 0034 has lit tests that fail without it. 0012 to 0028
+also had an independent review, and the changes those reviews caused were reviewed again. The
+upstream fixes B01 to B08 bring upstream's own tests. B04, B05 and B08 have none that fails on
+rt2.1 (RELEASE-NOTES.md says why).
 
 
 THIRD-PARTY CODE INSIDE THE TOOLS: zlib
@@ -145,7 +163,7 @@ licenses/zlib-LICENSE.txt.
 I did not change zlib's source. It is the released zlib-1.4.tar.gz from madler/zlib's v1.4
 release on GitHub, checked against its published sha256. I built it as a static library with the
 Visual Studio 2022 14.44 toolset, from the source list in its win32/Makefile.msc, against the
-dynamic CRT (/MD) like LLVM.
+dynamic CRT (/MD) like LLVM. It is the same zlib build as in rt2.3.
 
 
 THIRD-PARTY CODE INSIDE THE TOOLS: libxml2
@@ -161,7 +179,7 @@ published sha256. I built it as a static library with ICU, iconv, zlib, HTTP and
 off. Two build-side additions, neither one touches libxml2's code: a one-line header forced into
 every libxml2 object that tells the linker to use bcrypt.lib (libxml2's dict.c calls
 BCryptGenRandom), and LIBXML_STATIC defined in the installed xmlexports.h, so programs using the
-static library don't need to pass it. It is the same libxml2 build as in rt2.2.
+static library don't need to pass it. It is the same libxml2 build as in rt2.2 and rt2.3.
 
 
 THE VC RUNTIME, AND WHY bin/ HAS EIGHT MICROSOFT DLLs
@@ -172,8 +190,8 @@ THE VC RUNTIME, AND WHY bin/ HAS EIGHT MICROSOFT DLLs
   msvcp140_codecvt_ids.dll
 
 These tools are built with the Visual Studio 2022 14.44 toolset and need MSVCP140.dll. Shipping
-the matching runtime means the toolchain works on its own. They are the same eight files rt2.1
-and rt2.2 ship.
+the matching runtime means the toolchain works on its own. They are the same eight files rt2.1,
+rt2.2 and rt2.3 ship.
 
 These are MICROSOFT's redistributable files, from the Visual Studio 2022 14.44 build tools.
 Microsoft lets you pass them on under the "Distributable Code" terms of the Visual Studio license
@@ -191,11 +209,14 @@ Nothing about layout, ABI or calling conventions was moved AWAY from MSVC. The c
 ABI-visible behaviour move clang TOWARD MSVC: 0012 expands the intrinsics like cl does, 0014
 treats pcs("aapcs-vfp") as the convention Windows on Arm already uses, 0016 emits the @feat.00
 symbol cl emits, 0017 builds the C++ exception tables, funclets and frames that MSVC's runtime
-reads, including MSVC's rule that such a frame is never realigned, and 0027 writes the throw
-information in the image-relative form cl writes on ARM32. rt2.2's patches change no ABI: 0021,
-0022 and 0025 are in the linker, 0023 is in llvm-lib, 0024 only drops call-graph profile edges to
-intrinsics, 0026 only rejects an instruction the architecture calls UNPREDICTABLE, and B01 to B08
-fix wrong code. 0028 only changes what one predefined macro says, so that it agrees with wchar_t.
+reads, including MSVC's rule that such a frame is never realigned, 0027 writes the throw
+information in the image-relative form cl writes on ARM32, 0029 writes the catch handler entries
+in the size cl writes on ARM32, and 0031 puts a trap after a call that doesn't return, as cl does.
+0030, 0032 and 0034 only change where code and constants go inside a function. rt2.2's patches
+change no ABI: 0021, 0022 and 0025 are in the linker, 0023 is in llvm-lib, 0024 only drops
+call-graph profile edges to intrinsics, 0026 only rejects an instruction the architecture calls
+UNPREDICTABLE, and B01 to B08 fix wrong code. 0028 only changes what one predefined macro says, so
+that it agrees with wchar_t. 0033 is in llvm-objdump, which doesn't build anything.
 
 
 NO WARRANTY

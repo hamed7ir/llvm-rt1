@@ -1,0 +1,180 @@
+From 758378dc430b78d89a59bc105a49e197daca600e Mon Sep 17 00:00:00 2001
+From: hamed7ir <hamedghorbani17@live.com>
+Date: Thu, 12 Nov 2026 03:58:53 -0800
+Subject: [PATCH 30/34] 0030 ARM: CATCHRET ends an EH scope
+
+ARM never registered CATCHRET as an EH scope end (no isEHScopeReturn, not the catch
+return opcode), and ARMExpandPseudo replaced it before FuncletLayout ran. Code reached
+only through a catchret was laid out inside the catch funclet, with the catch's EH
+state; with assertions on it is "MBB is part of two scopes!"
+(llvm/llvm-project#239929). Mark it, pass it as the catch return opcode, keep it to
+the AsmPrinter, and let isEHScopeReturnBlock look at every terminator, because the
+Windows unwind pseudos follow the return. From llvm/llvm-project#240693.
+---
+ llvm/include/llvm/CodeGen/MachineBasicBlock.h |  9 ++--
+ llvm/lib/Target/ARM/ARMAsmPrinter.cpp         |  9 ++++
+ llvm/lib/Target/ARM/ARMBaseInstrInfo.cpp      |  4 +-
+ llvm/lib/Target/ARM/ARMExpandPseudoInsts.cpp  |  8 +--
+ llvm/lib/Target/ARM/ARMInstrInfo.td           |  3 +-
+ llvm/test/CodeGen/ARM/wineh-catchret-scope.ll | 53 +++++++++++++++++++
+ 6 files changed, 77 insertions(+), 9 deletions(-)
+ create mode 100644 llvm/test/CodeGen/ARM/wineh-catchret-scope.ll
+
+diff --git a/llvm/include/llvm/CodeGen/MachineBasicBlock.h b/llvm/include/llvm/CodeGen/MachineBasicBlock.h
+index 47430a100..ab094a24f 100644
+--- a/llvm/include/llvm/CodeGen/MachineBasicBlock.h
++++ b/llvm/include/llvm/CodeGen/MachineBasicBlock.h
+@@ -984,10 +984,13 @@ public:
+     return !empty() && back().isReturn();
+   }
+ 
+-  /// Convenience function that returns true if the bock ends in a EH scope
+-  /// return instruction.
++  /// Convenience function that returns true if one of the block's terminators
++  /// is an EH scope return instruction. Other terminators can follow it, such
++  /// as the Windows unwind pseudos after a return on ARM.
+   bool isEHScopeReturnBlock() const {
+-    return !empty() && back().isEHScopeReturn();
++    return llvm::any_of(terminators(), [](const MachineInstr &MI) {
++      return MI.isEHScopeReturn();
++    });
+   }
+ 
+   /// Split a basic block into 2 pieces at \p SplitPoint. A new block will be
+diff --git a/llvm/lib/Target/ARM/ARMAsmPrinter.cpp b/llvm/lib/Target/ARM/ARMAsmPrinter.cpp
+index 7ebeb9cc9..09d6cb6b1 100644
+--- a/llvm/lib/Target/ARM/ARMAsmPrinter.cpp
++++ b/llvm/lib/Target/ARM/ARMAsmPrinter.cpp
+@@ -2046,6 +2046,15 @@ void ARMAsmPrinter::emitInstruction(const MachineInstr *MI) {
+       .addReg(MI->getOperand(3).getReg()));
+     return;
+   }
++  case ARM::CATCHRET:
++    // A catch funclet returns to the runtime: bx lr.
++    if (AFI->isThumbFunction())
++      EmitToStreamer(
++          *OutStreamer,
++          MCInstBuilder(ARM::tBX).addReg(ARM::LR).addImm(ARMCC::AL).addReg(0));
++    else
++      EmitToStreamer(*OutStreamer, MCInstBuilder(ARM::BX).addReg(ARM::LR));
++    return;
+   // Darwin call instructions are just normal call instructions with different
+   // clobber semantics (they clobber R9).
+   case ARM::BX_CALL: {
+diff --git a/llvm/lib/Target/ARM/ARMBaseInstrInfo.cpp b/llvm/lib/Target/ARM/ARMBaseInstrInfo.cpp
+index a922024b0..b6213f49f 100644
+--- a/llvm/lib/Target/ARM/ARMBaseInstrInfo.cpp
++++ b/llvm/lib/Target/ARM/ARMBaseInstrInfo.cpp
+@@ -109,7 +109,8 @@ static const ARM_MLxEntry ARM_MLxTable[] = {
+ 
+ ARMBaseInstrInfo::ARMBaseInstrInfo(const ARMSubtarget &STI,
+                                    const ARMBaseRegisterInfo &TRI)
+-    : ARMGenInstrInfo(STI, TRI, ARM::ADJCALLSTACKDOWN, ARM::ADJCALLSTACKUP),
++    : ARMGenInstrInfo(STI, TRI, ARM::ADJCALLSTACKDOWN, ARM::ADJCALLSTACKUP,
++                      ARM::CATCHRET),
+       Subtarget(STI) {
+   for (unsigned i = 0, e = std::size(ARM_MLxTable); i != e; ++i) {
+     if (!MLxEntryMap.insert(std::make_pair(ARM_MLxTable[i].MLxOpc, i)).second)
+@@ -620,6 +621,7 @@ unsigned ARMBaseInstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
+   case TargetOpcode::BUNDLE:
+     return getInstBundleSize(MI);
+   case TargetOpcode::COPY:
++  case ARM::CATCHRET:
+     if (!MF->getInfo<ARMFunctionInfo>()->isThumbFunction())
+       return 4;
+     else
+diff --git a/llvm/lib/Target/ARM/ARMExpandPseudoInsts.cpp b/llvm/lib/Target/ARM/ARMExpandPseudoInsts.cpp
+index fc73e99e3..e3ceede40 100644
+--- a/llvm/lib/Target/ARM/ARMExpandPseudoInsts.cpp
++++ b/llvm/lib/Target/ARM/ARMExpandPseudoInsts.cpp
+@@ -2285,10 +2285,10 @@ bool ARMExpandPseudo::ExpandMI(MachineBasicBlock &MBB,
+         // adjacent: bundle them, as the MOV32 expansion does on Windows.
+         finalizeBundle(MBB, Lo->getIterator(), std::next(Hi->getIterator()));
+         TargetMBB->setMachineBlockAddressTaken();
+-        BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(RetOpcode))
+-            .add(predOps(ARMCC::AL))
+-            .addReg(ARM::R0, RegState::Implicit);
+-        MI.eraseFromParent();
++        // Keep the CATCHRET, which ends the EH scope, for FuncletLayout; the
++        // AsmPrinter lowers it to the return.
++        MI.addOperand(MachineOperand::CreateReg(ARM::R0, /*isDef=*/false,
++                                                /*isImp=*/true));
+         return true;
+       }
+       BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(RetOpcode))
+diff --git a/llvm/lib/Target/ARM/ARMInstrInfo.td b/llvm/lib/Target/ARM/ARMInstrInfo.td
+index 4ba7a447e..69dad4b2f 100644
+--- a/llvm/lib/Target/ARM/ARMInstrInfo.td
++++ b/llvm/lib/Target/ARM/ARMInstrInfo.td
+@@ -6747,7 +6747,8 @@ let isPseudo = 1 in {
+ }
+ 
+ // C++ Exception / SEH Pseudo Instructions
+-let isTerminator = 1, isReturn = 1, isBarrier = 1, isCodeGenOnly = 1, hasNoSchedulingInfo = 1 in {
++let isTerminator = 1, isReturn = 1, isBarrier = 1, isCodeGenOnly = 1,
++    hasNoSchedulingInfo = 1, isEHScopeReturn = 1 in {
+   def CLEANUPRET : PseudoInst<(outs), (ins), NoItinerary, [(cleanupret bb)]>, Sched<[]>;
+   def CATCHRET : PseudoInst<(outs), (ins arm_br_target:$dst, arm_br_target:$src), NoItinerary, [(catchret bb:$dst, bb:$src)]>, Sched<[]>;
+ }
+diff --git a/llvm/test/CodeGen/ARM/wineh-catchret-scope.ll b/llvm/test/CodeGen/ARM/wineh-catchret-scope.ll
+new file mode 100644
+index 000000000..d6016c789
+--- /dev/null
++++ b/llvm/test/CodeGen/ARM/wineh-catchret-scope.ll
+@@ -0,0 +1,53 @@
++; RUN: llc -mtriple=thumbv7-pc-windows-msvc < %s | FileCheck %s
++; RUN: llc -O0 -mtriple=thumbv7-pc-windows-msvc < %s | FileCheck %s
++
++; The code after a catch, reached through catchret, belongs to the parent
++; function and not to the catch funclet, which returns with bx lr.
++
++declare void @g()
++declare i32 @__CxxFrameHandler3(...)
++
++; Reached from the try and from the catch.
++define void @both() personality ptr @__CxxFrameHandler3 {
++; CHECK-LABEL: both:
++; CHECK:       $ehgcr_{{[0-9_]+}}:
++; CHECK:       .seh_endproc
++; CHECK:       "?catch${{[0-9]+}}@?0?both@4HA":
++; CHECK-NOT:   $ehgcr
++; CHECK:       bx lr
++; CHECK-NOT:   $ehgcr
++; CHECK:       .seh_endproc
++entry:
++  invoke void @g() to label %done unwind label %dispatch
++dispatch:
++  %cs = catchswitch within none [label %catch] unwind to caller
++catch:
++  %cp = catchpad within %cs [ptr null, i32 64, ptr null]
++  catchret from %cp to label %done
++done:
++  ret void
++}
++
++; Reached only from the catch.
++define void @only_catch() personality ptr @__CxxFrameHandler3 {
++; CHECK-LABEL: only_catch:
++; CHECK:       $ehgcr_{{[0-9_]+}}:
++; CHECK:       .seh_endproc
++; CHECK:       "?catch${{[0-9]+}}@?0?only_catch@4HA":
++; CHECK-NOT:   $ehgcr
++; CHECK:       bx lr
++; CHECK-NOT:   $ehgcr
++; CHECK:       .seh_endproc
++entry:
++  invoke void @g() to label %unreachable unwind label %dispatch
++dispatch:
++  %cs = catchswitch within none [label %catch] unwind to caller
++catch:
++  %cp = catchpad within %cs [ptr null, i32 64, ptr null]
++  catchret from %cp to label %done
++done:
++  call void @g()
++  ret void
++unreachable:
++  unreachable
++}
+-- 
+2.53.0.windows.3
+
